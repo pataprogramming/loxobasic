@@ -97,47 +97,50 @@
 
 (declare express)
 
-(defn bbool [exp]
-  (let [v (express exp)]
+(defn bbool [cxt exp]
+  (let [v (express cxt exp)]
     (case v
       true  -1
       false  0
       0      0
       -1)))
 
-(defn bfalse? [exp]
-  (let [v (bbool (express exp))]
+(defn bfalse? [cxt exp]
+  (let [v (bbool (express cxt exp))]
     (= 0 v)))
 
-(defn btrue? [exp]
+(defn btrue? [cxt exp]
   (not (bfalse? exp)))
 
-(defn express [exp]
+(defn express [cxt exp]
   (if (coll? exp)
-    (let [typ (first exp)
-          a (express (fnext exp))
-          b (express (first (next (next exp))))]
+    (let [[typ a b] exp
+          ;a (express cxt (fnext exp))
+          ;b (express cxt (first (next (next exp))))
+          ]
       (println "type:" typ "a:" a "b:" b)
       (case typ
         nil       nil
         :constant a
-        :+        (+ a b)
-        :-        (if (not (nil? b))
-                    (- a b)
-                    (- a))
-        :*        (* a b)
-        :/        (/ a b)
-        :AND      (bbool (and (btrue? a) (btrue? b)))
-        :OR       (bbool (or  (btrue? a) (btrue? b)))
-        :NOT      (bbool (not (btrue? a)))
-        :=        (bbool (= a b))
-        :>        (bbool (> a b))
-        :<        (bbool (< a b))
-        :<=       (bbool (<= a b))
-        :>=       (bbool (>= a b))
-        :<>       (bbool (not= a b))
-        :><       (bbool (not= a b))
-        (throw (Throwable. (str "can't handle" typ)))))
+        :id       (get-in cxt [:vars a])
+        :+        (+ (express cxt a) (express cxt b))
+        :-        (if (not (nil? (express cxt b)))
+                    (- (express cxt a) (express cxt b))
+                    (- (express cxt a)))
+        :*        (* (express cxt a) (express cxt b))
+        :/        (/ (express cxt a) (express cxt) b)
+        :AND      (bbool cxt (and (btrue? cxt a) (btrue? cxt b)))
+        :OR       (bbool cxt (or  (btrue? cxt a) (btrue? cxt b)))
+        :NOT      (bbool cxt (not (btrue? cxt a)))
+        :=        (bbool cxt (= (express cxt a) (express cxt b)))
+        :>        (bbool cxt (> (express cxt a) (express cxt b)))
+        :<        (bbool cxt (< (express cxt a) (express cxt b)))
+        :<=       (bbool cxt (<= (express cxt a) (express cxt b)))
+        :>=       (bbool cxt (>= (express cxt a) (express cxt b)))
+        :<>       (bbool cxt (not= (express cxt a) (express cxt b)))
+        :><       (bbool cxt (not= (express cxt a) (express cxt b)))
+        (throw (Throwable. (str "can't handle" typ)))
+        ))
     exp))
 
 (defn store [cxt line]
@@ -153,9 +156,9 @@
   (println "action:" action "args:" args)
   (case action
     :assignment
-    (assoc-in cxt [:vars (second (first args))] (express (fnext args)))
+    (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args)))
     :print (do
-              (println "OUTPUT:" (express args))
+              (println "OUTPUT:" (apply express cxt args))
               cxt)))
 
 (defn interpret [cxt line]
