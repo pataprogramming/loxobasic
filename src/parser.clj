@@ -20,7 +20,9 @@
     line          = <ws*> label <ws> statement <ws*>
     label         = integer
     statement     = assignment
-                  | 'PRINT' <ws> expression
+                  | print
+
+    print         = <'PRINT' <ws>> expression
 
     assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
 
@@ -83,12 +85,14 @@
     :mult_exp    treeify
     :negate_exp  treeify
     :power_exp   treeify
-    :statement   (fn stmtify [[action & args]] {:action action :args args})
+    ;;:assignment  (fn ass-to-stmt [& ass] (apply vector "LET" ass))
+    :statement   (fn stmtify [[action & args]] {:action action :args (vec args)})
     :line        (fn lineify [[_ label] statement] (assoc statement :label label))
     :program     (fn programmify [& lines]
                    (reduce (fn [acc {:keys [label] :as line}] (assoc acc label line))
                            (avl/sorted-map)
-                           lines))}
+                           lines))
+    }
    s))
 
 (declare express)
@@ -150,7 +154,7 @@
   (case action
     :assignment
     (assoc-in cxt [:vars (second (first args))] (express (fnext args)))
-    "PRINT" (do
+    :print (do
               (println "OUTPUT:" (express args))
               cxt)))
 
