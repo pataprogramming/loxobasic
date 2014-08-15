@@ -21,8 +21,10 @@
     label         = integer
     statement     = assignment
                   | print
+                  | goto
 
     print         = <'PRINT' <ws>> expression
+    goto          = <'GOTO' <ws>> expression
 
     assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
 
@@ -158,8 +160,12 @@
     :assignment
     (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args)))
     :print (do
-              (println "OUTPUT:" (apply express cxt args))
-              cxt)))
+             (println "OUTPUT:" (apply express cxt args))
+             cxt)
+    :goto  (let [dest (express cxt (first args))]
+            (-> cxt
+                (assoc-in [:ip] (avl/subrange (:program cxt) >= dest))
+                (assoc-in [:jumped?] true)))))
 
 (defn interpret [cxt line]
   (let [ast (first (vals  (process (basic line))))]
@@ -170,7 +176,7 @@
 
 (defn maybe-advance [cxt]
   (if (:jumped? cxt)
-    cxt
+    (assoc-in cxt [:jumped?] false)
     (update-in cxt [:ip] next)))
 
 (defn run [cxt]
