@@ -14,11 +14,13 @@
 (def basic
   (ip/parser
    "program       = lines
-                  | <ws*> statement <ws*> <nl*>
+                  | <ws*> statements <ws*> <nl*>
     <lines>         = lines <nl+> line
                   | line <nl*>
-    line          = <ws*> label <ws> statement <ws*>
+    line          = <ws*> label <ws> statements <ws*>
     label         = integer
+    <statements>  = statements <ws* ':' ws*> statement
+                  | statement
     statement     = assignment
                   | print
                   | if
@@ -67,7 +69,7 @@
                   | id
                   | constant
 
-    integer = digit+
+    integer = #'[0-9]+'
     <digit> = #'[0-9]'
     <string> = <'\"'> #'[^\"]*' <'\"'>
     <alpha> = #'[A-Za-z]'
@@ -97,13 +99,14 @@
     :mult_exp    treeify
     :negate_exp  treeify
     :power_exp   treeify
-    ;;:assignment  (fn ass-to-stmt [& ass] (apply vector "LET" ass))
     :statement   (fn stmtify [[action & args]] {:action action :args (vec args)})
-    :line        (fn lineify [[_ label] statement] (assoc statement :label label))
+    :line        (fn lineify [[_ label] & statements]
+                   (for [idx (range (count statements))]
+                     (assoc (nth statements idx) :label [label (* 10 idx)])))
     :program     (fn programmify [& lines]
-                   (reduce (fn [acc {:keys [label] :as line}] (assoc acc [label 0] line))
+                   (reduce (fn [acc {:keys [label] :as line}] (assoc acc label line))
                            (avl/sorted-map-by compare-pair)
-                           lines))
+                           (mapcat identity lines)))
     }
    s))
 
