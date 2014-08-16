@@ -101,8 +101,8 @@
     :statement   (fn stmtify [[action & args]] {:action action :args (vec args)})
     :line        (fn lineify [[_ label] statement] (assoc statement :label label))
     :program     (fn programmify [& lines]
-                   (reduce (fn [acc {:keys [label] :as line}] (assoc acc label line))
-                           (avl/sorted-map)
+                   (reduce (fn [acc {:keys [label] :as line}] (assoc acc [label 0] line))
+                           (avl/sorted-map-by compare-pair)
                            lines))
     }
    s))
@@ -164,7 +164,7 @@
 (defn action-goto [cxt args]
   (let [dest (express cxt (first args))]
     (-> cxt
-        (assoc-in [:ip] (avl/subrange (:program cxt) >= dest))
+        (assoc-in [:ip] (avl/subrange (:program cxt) >= [dest 0]))
         (assoc-in [:jumped?] true))))
 
 (defn action-gosub [cxt args]
@@ -221,4 +221,4 @@
                 (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
-        (-> cxt (dissoc :ip :running? :jumped?))))))
+        (-> cxt (dissoc :ip :running? :jumped? :substack))))))
