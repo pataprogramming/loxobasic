@@ -23,6 +23,8 @@
                   | print
                   | if
                   | goto
+                  | gosub
+                  | return
                   | end
 
     print         = <'PRINT' <ws>> expression
@@ -30,6 +32,8 @@
                     <<ws> 'THEN' <ws>> expression
                     (<<ws> 'ELSE' <ws>> expression)?
     goto          = <'GOTO' <ws>> expression
+    gosub         = <'GOSUB' <ws>> expression
+    return        = <'RETURN'>
     end           = <'END'>
 
     assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
@@ -163,22 +167,35 @@
         (assoc-in [:ip] (avl/subrange (:program cxt) >= dest))
         (assoc-in [:jumped?] true))))
 
+(defn action-gosub [cxt args]
+  (action-goto
+   (-> (update-in cxt [:substack] #(conj % (next (:ip cxt)))))
+   args))
+
+(defn action-return [cxt _]
+  (-> cxt
+      (assoc-in [:ip] (peek (:substack cxt)))
+      (assoc-in [:jumped?] true)
+      (update-in [:substack] pop)))
+
 (defn execute [cxt {:keys [action args] :as stmt}]
   (println "trying to execute " stmt)
   (println "action:" action "args:" args)
   (case action
     :assignment
     (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args)))
-    :print (do
-             (println "OUTPUT:" (apply express cxt args))
-             cxt)
-    :if    (if (btrue? cxt (first args))
-             (action-goto cxt [(second args)])
-             (if (= (count args) 3)
-               (action-goto cxt [(nth args 2)])
-               cxt))
-    :goto  (action-goto cxt args)
-    :end   (assoc-in cxt [:running?] false)))
+    :print  (do
+              (println "OUTPUT:" (apply express cxt args))
+              cxt)
+    :if     (if (btrue? cxt (first args))
+              (action-goto cxt [(second args)])
+              (if (= (count args) 3)
+                (action-goto cxt [(nth args 2)])
+                cxt))
+    :goto   (action-goto cxt args)
+    :gosub  (action-gosub cxt args)
+    :return (action-return cxt args)
+    :end    (assoc-in cxt [:running?] false)))
 
 (defn interpret [cxt line]
   (let [ast (first (vals  (process (basic line))))]
@@ -187,7 +204,7 @@
       (store cxt ast)
       (execute cxt ast))))
 
-(defn maybe-advance [cxt]
+(defn maybe-advance-ip [cxt]
   (if (:jumped? cxt)
     (assoc-in cxt [:jumped?] false)
     (update-in cxt [:ip] next)))
@@ -196,11 +213,12 @@
   (loop [cxt  (-> cxt
                   (assoc :ip (:program cxt))
                   (assoc :running? true)
-                  (assoc :jumped? false))]
+                  (assoc :jumped? false)
+                  (assoc :substack '()))]
     (let [stmt (val (first (:ip cxt)))
           cxt  (->
                 (execute cxt stmt)
-                (maybe-advance))]
+                (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
         (-> cxt (dissoc :ip :running? :jumped?))))))
