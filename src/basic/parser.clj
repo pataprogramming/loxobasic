@@ -11,6 +11,14 @@
     1  1
     0  (compare b d)))
 
+(defn compare-seq [[a & as] [b & bs]]
+  (if (and (nil? a) (nil? b))
+    0
+    (case (compare a b)
+      -1 -1
+      1  1
+      0  (recur as bs))))
+
 (def basic
   (ip/parser
    "program       = lines
@@ -35,8 +43,9 @@
     print         = <'PRINT' <ws>> expression
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
-    then-clause   = <'THEN' <ws>> (expression | statements)
-    else-clause   = <'ELSE' <ws>> (expression | statements)
+    then-clause   = <'THEN' <ws>> (cond-destination | statements)
+    cond-destination = expression
+    else-clause   = <'ELSE' <ws>> (cond-destination | statements)
 
     if            = if-then | if-then-else
     if-then       = <'IF' <ws>> expression <ws> then-clause
@@ -97,12 +106,14 @@
 
 
 (defn label-clause-level [level statements]
+  (println "labeling: " statements "with: " level)
   (for [idx (range (count statements))]
     (update-in (nth statements idx)
                [:label] #(conj % level))))
 
 
-(defn process [s]
+(defn process-expressions [parse-tree]
+  (println "processing " parse-tree)
   (ip/transform
    {:integer     (comp clojure.edn/read-string str)
     :alphanum    str
@@ -120,28 +131,42 @@
                    (for [idx (range (count statements))]
                      (update-in (nth statements idx)
                                 [:label] #(conj % (* 10 idx)))))
-
-    ;; :then-clause (fn thenlabel [statements]
-    ;;                (println " STATEMENTS:" statements)
-    ;;                (for [idx (range (count statements))]
-    ;;                  (update-in (nth statements idx)
-    ;;                             [:label] #(conj % 1))))
-
-
-    ;; :if-clause   #(label-clause-level 0 %)
-    :if          #(label-clause-level 0 %)
-    :then-clause #(label-clause-level 1 %)
-    :else-clause #(label-clause-level 2 %)
+    :cond-destination
+    (fn cond-to-goto [expression]
+      [{:label [0] :action :goto :args [expression]}])
+    :then-clause (fn thenlabel [statements]
+                   (label-clause-level 1 statements))
+    :else-clause (fn elselabel [statements]
+                   (label-clause-level 2 statements))
     :line        (fn lineify [[_ label] statements]
                    (println " STATEMENTS:" statements)
                    (for [idx (range (count statements))]
                      (update-in (nth statements idx) [:label] #(conj % label))))
+
     :program     (fn programmify [& lines]
                    (reduce (fn [acc {:keys [label] :as line}] (assoc acc label line))
-                           (avl/sorted-map-by compare-pair)
+                           (avl/sorted-map-by compare-seq)
                            (mapcat identity lines)))
-    }
-   s))
+}
+   parse-tree))
+
+
+(defn process-conditionals [s]
+  (println "processing " s)
+  (ip/transform {:constant vector} s))
+  ;; (ip/transform {:goto #([])}
+   ;; {
+
+    ;;:if-clause   #(label-clause-level 0 %)
+    ;;:if-then       #(label-clause-level 0 %)
+    ;; :cond-destination (fn cond-to-goto [expression] {:action :goto :args [expression]})
+    ;; :then-clause      #(label-clause-level 1 [%])
+    ;; :else-clause      #(label-clause-level 2 [%])
+    ;; }
+;;    s)
+;; )
+(defn process [s]
+  (-> s process-expressions))
 
 (declare express)
 
