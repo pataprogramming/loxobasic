@@ -17,9 +17,10 @@
          100 E=5
          110 RETURN")
 
-(def uu "10 J=1+2
-         20 FOR I=1 TO J
+(def uu "10 J=2*3
+         20 FOR I=0 TO J STEP 2
          30 PRINT I
+         35 IF I=4 THEN STOP
          40 NEXT I")
 
 (defn compare-pair [[a b] [c d]]
@@ -76,7 +77,7 @@
     goto          = <'GOTO' <ws>> expression
     gosub         = <'GOSUB' <ws>> expression
     return        = <'RETURN'>
-    end           = <'END'>
+    end           = <'END' | 'STOP'>
 
     assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
 
@@ -409,7 +410,7 @@
 
 (defn action-test-jump [cxt args]
   (if (btrue? cxt (first args))
-    (action-goto cxt (second args))
+    (action-goto cxt [(second args)])
     cxt))
 
 (defn execute [cxt {:keys [action args] :as stmt}]
