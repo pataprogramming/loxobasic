@@ -507,9 +507,7 @@
 
 (defn action-input [cxt args]
   (let [cxt (if (> (count args) 1)
-              (-> cxt
-                  (action-print (butlast args))
-                  (#(do (flush) %)))
+              (action-print cxt (butlast args))
               cxt)]
     (if (empty? (:input cxt))
       (-> cxt
@@ -651,6 +649,7 @@
     (do
       ;; FIXME: Trailing ';' for print instead of println
       (print (peek (:output cxt)))
+      (flush)
       (recur (update-in cxt [:output] pop)))))
 
 (defn get-input [cxt]
