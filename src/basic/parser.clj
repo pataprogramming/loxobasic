@@ -17,11 +17,12 @@
          100 E=5
          110 RETURN")
 
-(def uu "10 J=2*3
-         20 FOR I=0 TO J STEP 2
-         30 PRINT I
-         35 IF I=4 THEN STOP
-         40 NEXT I")
+(def uu "10 K=3
+         20 FOR I=0 TO K
+         30 FOR J=5 TO I+6
+         31 PRINT I
+         32 PRINT J
+         40 NEXT J,I")
 
 (def vv "10  A=2:B=1
          20  ON A GOSUB 100,110,120
@@ -33,7 +34,7 @@
          110 B=2:A=1:RETURN
          120 B=3:A=1:RETURN")
 
-  (def ww "4  C=1
+(def ww "4  C=1
          5  B=C*2
          6  PRINT B
          10 PRINT \"ENTER A NUMBER:\"
@@ -122,7 +123,7 @@
 
     for           = <'FOR' ws> id <ws*> <'=' ws*> expression <ws 'TO' ws> expression
                     (<ws 'STEP' ws> expression)?
-    next          = <'NEXT' ws> id
+    next          = <'NEXT' ws> id-list
 
     goto          = <'GOTO' <ws>> expression
     gosub         = <'GOSUB' <ws>> expression
@@ -535,7 +536,7 @@
      :else      (-> cxt
                     (#(action-assign % [id datum]))
                     (advance-data-pointer)
-                    (action-read (next args))))))
+                    (action-read rst)))))
 
 (defn action-restore [cxt _]
   (reset-data-pointer cxt))
@@ -565,13 +566,14 @@
 
 (defn action-next [cxt args]
   ;; FIXME Update this for multiple arguments
-  (let [[_ id] (first args)
-        {:keys [label end-val step]} (get-in cxt [:for-map id])]
-    (-> cxt
-        (action-assign [[:id id] [:+ [:id id] step]])
-        (#(if (btrue? % [:<= [:id id] end-val])
-            (action-goto % [label])
-            cxt)))))
+  (let [[id & rst]               args
+        {:keys [label end-val step]} (get-in cxt [:for-map (second id)])]
+    (if id
+      (let [cxt (action-assign cxt [id [:+ id step]])]
+        (if (btrue? cxt [:<= id end-val])
+          (action-goto cxt [label])
+          (recur cxt rst)))
+      cxt)))
 
 (defn action-return [cxt _]
   (-> cxt
