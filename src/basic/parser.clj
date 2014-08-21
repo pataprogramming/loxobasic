@@ -32,13 +32,28 @@
          100 B=1:A=1:RETURN
          110 B=2:A=1:RETURN
          120 B=3:A=1:RETURN")
-(def ww "4  C=1
+
+  (def ww "4  C=1
          5  B=C*2
          6  PRINT B
          10 PRINT \"ENTER A NUMBER:\"
          20 INPUT A
          30 PRINT \"YOU ENTERED:\"
          40 PRINT A")
+
+(def xx "10 DATA \"A\",5
+         15 DATA \"B\",10
+         20 READ FOO,BAR,BAZ
+         30 PRINT FOO
+         40 PRINT BAR
+         50 PRINT BAZ
+         60 RESTORE
+         70 READ WOMBLE
+         80 PRINT WOMBLE
+         90 END")
+
+(def yy "5 REM HOWDY
+         10 DATA 1,2,3,4")
 
 (defn compare-pair [[a b] [c d]]
   (case (compare a c)
@@ -68,6 +83,9 @@
     statement     = assignment
                   | print
                   | input
+                  | data
+                  | read
+                  | restore
                   | remark
                   | if-then-else
                   | if-then
@@ -82,8 +100,19 @@
 
     print         = <'PRINT' <ws>> expression
     input         = <'INPUT' <ws>> id
+
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
+
+    <datum>       = string | integer
+    <data-list>   = datum (<ws* ',' ws*> datum)*
+    data          = <'DATA' ws> data-list
+
+    <id-list>     = id (<ws* ',' ws*> id)*
+    read          = <'READ' ws> id-list
+
+    restore       = <'RESTORE'>
+
     then-clause   = <'THEN' <ws>> (cond-destination | statements)
     cond-destination = expression
     else-clause   = <'ELSE' <ws>> (cond-destination | statements)
@@ -481,6 +510,36 @@
           (#(action-assign % [id [:constant (peek (:input %))]]))
           (update-in [:input] pop)))))
 
+(defn action-none [cxt _] cxt)
+
+(defn reset-data-pointer [cxt]
+  (let [ptr (drop-while #(not= (:action (val %)) :data) (:program cxt))]
+    (assoc-in cxt [:data-pointer] [ptr (:args (second (first ptr)))])))
+
+(defn advance-data-pointer [cxt]
+  (assoc-in
+   cxt [:data-pointer]
+   (let [[ptr data] (:data-pointer cxt)]
+     (if (seq (next data))
+       [ptr (next data)]
+       (if-let [next-ptr (drop-while #(not= (:action (second %)) :data) (next ptr))]
+         [next-ptr (:args (second (first next-ptr)))]
+         [nil nil])))))
+
+(defn action-read [cxt args]
+  (let [[id & rst] args
+        [ptr [datum]] (:data-pointer cxt)]
+    (cond
+     (nil? id)  cxt
+     (nil? ptr) (do (println "READ: OUT OF DATA ERROR") cxt)
+     :else      (-> cxt
+                    (#(action-assign % [id datum]))
+                    (advance-data-pointer)
+                    (action-read (next args))))))
+
+(defn action-restore [cxt _]
+  (reset-data-pointer cxt))
+
 (defn action-jump [cxt label]
   (println "action-jump to" label)
   (-> cxt
@@ -538,12 +597,15 @@
     :assignment (action-assign cxt args)
     :print      (action-print cxt args)
     :input      (action-input cxt args)
+    :data       (action-none cxt args)
+    :read       (action-read cxt args)
+    :restore    (action-restore cxt args)
     :test-jump  (action-test-jump cxt args)
     :goto       (action-goto cxt args)
     :gosub      (action-gosub cxt args)
     :store-for  (action-store-for cxt args)
     :next       (action-next cxt args)
-    :remark     cxt
+    :remark     (action-none cxt args)
     :return     (action-return cxt args)
     :end        (assoc-in cxt [:running?] false)))
 
@@ -575,13 +637,15 @@
 (defn run [cxt]
   (loop [cxt  (-> cxt
                   (assoc :ip (:program cxt))
+                  (assoc :data-pointer [nil nil])
                   (assoc :running? true)
                   (assoc :jumped? false)
                   (assoc :substack '())
                   (assoc :for-map {})
                   (assoc :output (clojure.lang.PersistentQueue/EMPTY))
                   (assoc :input (clojure.lang.PersistentQueue/EMPTY))
-                  (assoc :input-blocked? false))]
+                  (assoc :input-blocked? false)
+                  (reset-data-pointer))]
     (let [stmt (val (first (:ip cxt)))
           cxt  (->
                 (execute cxt stmt)
