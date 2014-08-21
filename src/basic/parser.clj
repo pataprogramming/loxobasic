@@ -6,7 +6,7 @@
             [clojure.pprint :as pp]))
 
 (def ss "5  PRINT ;
-         10 PRINT 1;\" \";2;
+         10 INPUT \"LET'S HAVE IT: \";D
          20 PRINT 3")
 
 
@@ -105,10 +105,10 @@
                   | end
 
     glue          = <';'>
-    <print-list>  = (glue | expression) (<ws>* (glue | expression))*
+    <print-list>  = (glue* | expression) (<ws>* (glue* | glue expression))*
 
     print         = <'PRINT' ws> print-list
-    input         = <'INPUT' ws> id
+    input         = <'INPUT' ws> (print-list glue)? id
 
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
@@ -506,18 +506,27 @@
   (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args))))
 
 (defn action-input [cxt args]
-  (if (empty? (:input cxt))
-    (-> cxt
-        (assoc-in [:input-blocked?] true)
-        (assoc-in [:jumped?] true) ; Prevent IP advance
-        )
-    (let [[id & rst] args]
-      (println "INPUT RECEIVED:" (peek (:input cxt)))
-      (println "STORING TO:" id)
+  (let [cxt (if (> (count args) 1)
+              (-> cxt
+                  (action-print (butlast args))
+                  (#(do (flush) %)))
+              cxt)]
+    (if (empty? (:input cxt))
       (-> cxt
-          (assoc-in [:input-blocked?] false)
-          (#(action-assign % [id [:constant (peek (:input %))]]))
-          (update-in [:input] pop)))))
+          (assoc-in [:input-blocked?] true)
+          (assoc-in [:jumped?] true) ; Prevent IP advance
+          )
+      (let [id (last args)]
+        ;; (println "INPUT RECEIVED:" (peek (:input cxt)))
+        ;; (println "STORING TO:" id)
+        (-> cxt
+            (assoc-in [:input-blocked?] false)
+            (#(action-assign % [id [:constant (peek (:input %))]]))
+            (#(do
+                (when (:echo-input? %)
+                  (println (peek (:input %))))
+                %))
+            (update-in [:input] pop))))))
 
 (defn action-none [cxt _] cxt)
 
@@ -660,6 +669,7 @@
                   (assoc :output (clojure.lang.PersistentQueue/EMPTY))
                   (assoc :input (clojure.lang.PersistentQueue/EMPTY))
                   (assoc :input-blocked? false)
+                  (assoc :echo-input? true)
                   (reset-data-pointer))]
     (let [stmt (val (first (:ip cxt)))
           cxt  (->
