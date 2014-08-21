@@ -5,6 +5,11 @@
             [clojure.walk :as w]
             [clojure.pprint :as pp]))
 
+(def ss "5  PRINT ;
+         10 PRINT 1;\" \";2;
+         20 PRINT 3")
+
+
 (def tt "10 A=1
          20 B=2
          30 C=3
@@ -99,8 +104,11 @@
                   | on-gosub
                   | end
 
-    print         = <'PRINT' <ws>> expression
-    input         = <'INPUT' <ws>> id
+    glue          = <';'>
+    <print-list>  = (glue | expression) (<ws>* (glue | expression))*
+
+    print         = <'PRINT' ws> print-list
+    input         = <'INPUT' ws> id
 
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
@@ -414,7 +422,7 @@
 (defn proc-steps [t]
   (->> t
        (w/postwalk rewrite-cond-destination)
-       ;; (w/postwalk rewrite-input)
+       ;;(w/postwalk rewrite-input)
        (w/postwalk rewrite-if-then-else)
        (w/postwalk rewrite-if-then)
        (w/postwalk rewrite-for)
@@ -588,9 +596,14 @@
 
 (defn action-print [cxt args]
   ;; FIXME: Update for multiple args
-  ;; (println "TRYING TO PRINT" (first args))
-  ;; (println "EXPRESSION SHOULD BE" (express cxt (first args)))
-  (update-in cxt [:output] #(conj % (express cxt (first args)))))
+  ;;(println "TRYING TO PRINT" args)
+  ;;(println "EXPRESSION SHOULD BE" (express cxt (first args)))
+  (let [strings    (apply str
+                          (map (partial express cxt)
+                               (filter #(not= % [:glue]) args)))
+        newln      (if (= (last args) [:glue]) "" "\n")
+        out-string (apply str strings newln)]
+    (update-in cxt [:output] #(conj % out-string))))
 
 (defn execute [cxt {:keys [action args] :as stmt}]
   ;; (println "trying to execute " stmt)
@@ -628,7 +641,7 @@
     cxt
     (do
       ;; FIXME: Trailing ';' for print instead of println
-      (println "DISPLAYING: " (peek (:output cxt)))
+      (print (peek (:output cxt)))
       (recur (update-in cxt [:output] pop)))))
 
 (defn get-input [cxt]
