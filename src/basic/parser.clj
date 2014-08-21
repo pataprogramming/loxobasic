@@ -26,12 +26,12 @@
 (def vv "10  A=2:B=1
          20  ON A GOSUB 100,110,120
          30  ON B GOTO 50,60,70
-         50  PRINT \"A\":STOP
-         60  PRINT \"B\":STOP
-         70  PRINT \"C\":STOP
-         100 B=1:RETURN
-         110 B=2:RETURN
-         120 B=3:RETURN")
+         50  PRINT \"FOO\":STOP
+         60  PRINT \"BAR\":STOP
+         70  PRINT \"BAZ\":STOP
+         100 B=1:A=1:RETURN
+         110 B=2:A=1:RETURN
+         120 B=3:A=1:RETURN")
 
 (defn compare-pair [[a b] [c d]]
   (case (compare a c)
@@ -413,7 +413,7 @@
           ;a (express cxt (fnext exp))
           ;b (express cxt (first (next (next exp))))
           ]
-      (println "type:" typ "a:" a "b:" b)
+      #_(println "type:" typ "a:" a "b:" b)
       (case typ
         nil       nil
         :expression (express cxt a)
@@ -493,14 +493,15 @@
     (action-goto cxt [(second args)])
     cxt))
 
+(defn action-print [cxt args]
+  (update-in cxt [:output] #(conj % (apply express % args))))
+
 (defn execute [cxt {:keys [action args] :as stmt}]
   (println "trying to execute " stmt)
   (println "action:" action "args:" args)
   (case action
     :assignment (action-assign cxt args)
-    :print      (do
-                  (println "OUTPUT:" (apply express cxt args))
-                  cxt)
+    :print      (action-print cxt args)
     :test-jump  (action-test-jump cxt args)
     :goto       (action-goto cxt args)
     :gosub      (action-gosub cxt args)
@@ -522,16 +523,28 @@
     (assoc-in cxt [:jumped?] false)
     (update-in cxt [:ip] next)))
 
+(defn show-output [cxt]
+  (if (empty? (:output cxt))
+    cxt
+    (do
+      ;; FIXME: Trailing ';' for print instead of println
+      (println "DISPLAYING: " (peek (:output cxt)))
+      (recur (update-in cxt [:output] pop)))))
+
 (defn run [cxt]
   (loop [cxt  (-> cxt
                   (assoc :ip (:program cxt))
                   (assoc :running? true)
                   (assoc :jumped? false)
                   (assoc :substack '())
-                  (assoc :for-map {}))]
+                  (assoc :for-map {})
+                  (assoc :output (clojure.lang.PersistentQueue/EMPTY))
+                  (assoc :input (clojure.lang.PersistentQueue/EMPTY))
+                  (assoc :input-blocked? false))]
     (let [stmt (val (first (:ip cxt)))
           cxt  (->
                 (execute cxt stmt)
+                (show-output)
                 (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
