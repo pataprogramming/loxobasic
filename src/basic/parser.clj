@@ -32,6 +32,13 @@
          100 B=1:A=1:RETURN
          110 B=2:A=1:RETURN
          120 B=3:A=1:RETURN")
+(def ww "4  C=1
+         5  B=C*2
+         6  PRINT B
+         10 PRINT \"ENTER A NUMBER:\"
+         20 INPUT A
+         30 PRINT \"YOU ENTERED:\"
+         40 PRINT A")
 
 (defn compare-pair [[a b] [c d]]
   (case (compare a c)
@@ -60,6 +67,7 @@
                   | statement
     statement     = assignment
                   | print
+                  | input
                   | remark
                   | if-then-else
                   | if-then
@@ -73,6 +81,7 @@
                   | end
 
     print         = <'PRINT' <ws>> expression
+    input         = <'INPUT' <ws>> id
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
     then-clause   = <'THEN' <ws>> (cond-destination | statements)
@@ -178,6 +187,15 @@
            (= (first t) :label))
     [:label (apply vector label (second t))]
     t))
+
+;; (defn rewrite-input [t]
+;;   (if (and (vector? t)
+;;            (= (first t) :input))
+;;     (let [[_ id] t]
+;;       [:input
+;;        [:statement [:label [0]] [:check-input]]
+;;        [:statement [:label [1]] [:get-input id]]])
+;;     t))
 
 (defn rewrite-if-then [t]
   (if (and (vector? t)
@@ -366,6 +384,7 @@
 (defn proc-steps [t]
   (->> t
        (w/postwalk rewrite-cond-destination)
+       ;; (w/postwalk rewrite-input)
        (w/postwalk rewrite-if-then-else)
        (w/postwalk rewrite-if-then)
        (w/postwalk rewrite-for)
@@ -448,6 +467,19 @@
 (defn action-assign [cxt args]
   (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args))))
 
+(defn action-input [cxt args]
+  (if (empty? (:input cxt))
+    (-> cxt
+        (assoc-in [:input-blocked?] true)
+        (assoc-in [:jumped?] true) ; Prevent IP advance
+        )
+    (let [[id & rst] args]
+      (println "INPUT RECEIVED:" (peek (:input cxt)))
+      (println "STORING TO:" id)
+      (-> cxt
+          (assoc-in [:input-blocked?] false)
+          (#(action-assign % [id [:constant (peek (:input %))]]))
+          (update-in [:input] pop)))))
 
 (defn action-jump [cxt label]
   (println "action-jump to" label)
@@ -494,14 +526,18 @@
     cxt))
 
 (defn action-print [cxt args]
-  (update-in cxt [:output] #(conj % (apply express % args))))
+  ;; FIXME: Update for multiple args
+  ;; (println "TRYING TO PRINT" (first args))
+  ;; (println "EXPRESSION SHOULD BE" (express cxt (first args)))
+  (update-in cxt [:output] #(conj % (express cxt (first args)))))
 
 (defn execute [cxt {:keys [action args] :as stmt}]
-  (println "trying to execute " stmt)
-  (println "action:" action "args:" args)
+  ;; (println "trying to execute " stmt)
+  ;; (println "action:" action "args:" args)
   (case action
     :assignment (action-assign cxt args)
     :print      (action-print cxt args)
+    :input      (action-input cxt args)
     :test-jump  (action-test-jump cxt args)
     :goto       (action-goto cxt args)
     :gosub      (action-gosub cxt args)
@@ -531,6 +567,11 @@
       (println "DISPLAYING: " (peek (:output cxt)))
       (recur (update-in cxt [:output] pop)))))
 
+(defn get-input [cxt]
+  (if (:input-blocked? cxt)
+    (update-in cxt [:input] #(conj % (read-line)))
+    cxt))
+
 (defn run [cxt]
   (loop [cxt  (-> cxt
                   (assoc :ip (:program cxt))
@@ -545,6 +586,7 @@
           cxt  (->
                 (execute cxt stmt)
                 (show-output)
+                (get-input)
                 (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
