@@ -21,6 +21,7 @@
          40 D=4
          50 D=5
          60 GOSUB 100
+         70 PRINT A;\" \";B;\" \";C;\" \";D;\" \";E
          99 END
          100 E=5
          110 RETURN")
@@ -473,6 +474,12 @@
 (defn btrue? [cxt exp]
   (not (bfalse? cxt exp)))
 
+(defn resolve-id [cxt [_ id]]
+  (let [[typ valu] (get-in cxt [:symbols id])]
+    (case typ
+      :constant valu
+      (do (println "UNKNOWN ID TYPE" typ)))))
+
 (defn express [cxt exp]
   (if (coll? exp)
     (let [[typ a b] exp
@@ -484,7 +491,7 @@
         nil       nil
         :expression (express cxt a)
         :constant a
-        :id       (get-in cxt [:symbols a])
+        :id       (resolve-id cxt exp)
         :+        (+ (express cxt a) (express cxt b))
         :-        (if (not (nil? (express cxt b)))
                     (- (express cxt a) (express cxt b))
@@ -512,7 +519,7 @@
   (assoc cxt :program program))
 
 (defn action-assign [cxt args]
-  (assoc-in cxt [:symbols (second (first args))] (express cxt (fnext args))))
+  (assoc-in cxt [:symbols (second (first args))] [:constant (express cxt (fnext args))]))
 
 (defn action-none [cxt _] cxt)
 
