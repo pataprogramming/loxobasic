@@ -7,6 +7,8 @@
 
 ;;;; Test programs
 
+(def rr "10 DEF F(X)=X*10")
+
 (def ss "5  PRINT ;
          10 INPUT \"LET'S HAVE IT: \";D
          20 PRINT 3")
@@ -84,6 +86,7 @@
     <statement-list>  = statement-list <ws* ':' ws*> statement
                   | statement
     statement     = assignment
+                  | def
                   | print
                   | input
                   | data
@@ -100,6 +103,13 @@
                   | on-goto
                   | on-gosub
                   | end
+
+    <expression-list> = expression (<ws* ','> expression)*
+    param-id      = id <'(' ws*> expression-list <ws* ')'>
+
+
+    parameters    = id-list
+    def           = <'DEF' ws*> id <ws* '(' ws*> parameters <ws* ')' ws* '=' ws*> expression
 
     glue          = <';'>
     <print-list>  = (glue* | expression) (<ws>* (glue* | glue expression))*
@@ -474,7 +484,7 @@
         nil       nil
         :expression (express cxt a)
         :constant a
-        :id       (get-in cxt [:vars a])
+        :id       (get-in cxt [:symbols a])
         :+        (+ (express cxt a) (express cxt b))
         :-        (if (not (nil? (express cxt b)))
                     (- (express cxt a) (express cxt b))
@@ -502,7 +512,7 @@
   (assoc cxt :program program))
 
 (defn action-assign [cxt args]
-  (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args))))
+  (assoc-in cxt [:symbols (second (first args))] (express cxt (fnext args))))
 
 (defn action-none [cxt _] cxt)
 
