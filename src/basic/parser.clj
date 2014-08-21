@@ -23,6 +23,16 @@
          35 IF I=4 THEN STOP
          40 NEXT I")
 
+(def vv "10  A=2:B=1
+         20  ON A GOSUB 100,110,120
+         30  ON B GOTO 50,60,70
+         50  PRINT \"A\":STOP
+         60  PRINT \"B\":STOP
+         70  PRINT \"C\":STOP
+         100 B=1:RETURN
+         110 B=2:RETURN
+         120 B=3:RETURN")
+
 (defn compare-pair [[a b] [c d]]
   (case (compare a c)
     -1 -1
@@ -58,6 +68,8 @@
                   | goto
                   | gosub
                   | return
+                  | on-goto
+                  | on-gosub
                   | end
 
     print         = <'PRINT' <ws>> expression
@@ -79,11 +91,17 @@
     return        = <'RETURN'>
     end           = <'END' | 'STOP'>
 
+    on-goto       = <'ON' ws> expression <ws 'GOTO' ws> expression-list
+    on-gosub       = <'ON' ws> expression <ws 'GOSUB' ws> expression-list
+
     assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
 
     constant      = integer | string
     expression    = and_exp <ws*> 'OR' <ws*> expression
                   | and_exp
+
+    expression-list = expression-list <ws* ',' ws*> expression
+                    | expression
     and_exp     = not_exp <ws*> 'AND' <ws*> and_exp
                   | not_exp
     not_exp     = 'NOT' <ws*> compare_exp
@@ -207,8 +225,7 @@
                           (get statements idx))))
                 t))
           t)
-    t
-    ))
+    t))
 
 (defn rewrite-for [t]
   (if (and (vector? t)
@@ -223,6 +240,64 @@
                                  (or step [:constant 1])]]])
     t))
 
+(defn flatten-expression-sublist [t]
+  (if (and (vector? t)
+           (= (first t) :expression-list))
+    (next t)
+    [t]))
+
+(defn flatten-expression-list [t]
+  (if (vector? t)
+    (let [[fst & expns] t]
+      (vec (apply concat
+                  [fst] (for [expn expns]
+                          (flatten-expression-sublist expn)))))
+    t))
+
+(defn rewrite-on-goto [t]
+  (if (and (vector? t)
+           (= (first t) :on-goto))
+    (let [[_ & rst]                  t
+          [test-expr :as dest-exprs] (vec rst)]
+      (apply vector :on-goto
+             (vec (mapcat identity
+                          (for [dest-idx (range 1 (count dest-exprs))]
+                            (let [base-label (* 2 dest-idx)
+                                  next-label (+ 2 base-label)]
+                              [[:statement
+                                [:label [base-label]]
+                                [:test-jump
+                                 [:<> test-expr [:constant dest-idx]]
+                                 [:label [next-label]]]]
+                               [:statement
+                                [:label [(inc base-label)]]
+                                [:goto (get dest-exprs dest-idx)]]]))))))
+    t))
+
+(defn rewrite-on-gosub [t]
+  (if (and (vector? t)
+           (= (first t) :on-gosub))
+    (let [[_ & rst]                  t
+          [test-expr :as dest-exprs] (vec rst)]
+      (apply vector :on-gosub
+             (vec (mapcat identity
+                          (for [dest-idx (range 1 (count dest-exprs))]
+                            (let [base-label (* 3 dest-idx)
+                                  next-label (+ 3 base-label)
+                                  end-label  (* 3 (count dest-exprs))]
+                              [[:statement
+                                [:label [base-label]]
+                                [:test-jump
+                                 [:<> test-expr [:constant dest-idx]]
+                                 [:label [next-label]]]]
+                               [:statement
+                                [:label [(inc base-label)]]
+                                [:gosub (get dest-exprs dest-idx)]]
+                               [:statement
+                                [:label [(+ 2 base-label)]]
+                                [:goto [:label [end-label]]]]]))))))
+    t))
+
 (defn strip-control [t]
   (if (and (vector? t)
            (#{:then-clause :else-clause} (first t)))
@@ -231,7 +306,8 @@
 
 (defn collapse-statement-level [t]
   (if (and (vector? t)
-           (#{:statements :if-then :if-then-else :for} (first t)))
+           (#{:statements :if-then :if-then-else :for
+              :on-goto :on-gosub} (first t)))
     (next t)
     [t]))
 
@@ -293,13 +369,17 @@
        (w/postwalk rewrite-if-then-else)
        (w/postwalk rewrite-if-then)
        (w/postwalk rewrite-for)
+       (w/postwalk flatten-expression-list)
+       (w/postwalk rewrite-on-goto)
+       (w/postwalk rewrite-on-gosub)
        (w/postwalk rewrite-tree-labels)
        (w/postwalk strip-control)
        (w/postwalk rewrite-line)
        (w/postwalk collapse-statements)
        (w/postwalk unnest-statements)
        (w/postwalk statementify)
-       (programmify)))
+       (programmify)
+       ))
 
 (defn process [s]
   (-> s process-expressions))
