@@ -5,10 +5,11 @@
             [clojure.walk :as w]
             [clojure.pprint :as pp]))
 
+;;;; Test programs
+
 (def ss "5  PRINT ;
          10 INPUT \"LET'S HAVE IT: \";D
          20 PRINT 3")
-
 
 (def tt "10 A=1
          20 B=2
@@ -61,12 +62,6 @@
 (def yy "5 REM HOWDY
          10 DATA 1,2,3,4")
 
-(defn compare-pair [[a b] [c d]]
-  (case (compare a c)
-    -1 -1
-    1  1
-    0  (compare b d)))
-
 (defn compare-seq [[a & as] [b & bs]]
   (if (and (nil? a) (nil? b))
     0
@@ -74,6 +69,8 @@
       -1 -1
       1  1
       0  (recur as bs))))
+
+;;;; Parsing program text into AVL map
 
 (def basic
   (ip/parser
@@ -447,6 +444,8 @@
       process
       proc-steps))
 
+;;;; Interpret and execute instructions
+
 (declare express)
 
 (defn bbool [cxt exp]
@@ -504,27 +503,6 @@
 
 (defn action-assign [cxt args]
   (assoc-in cxt [:vars (second (first args))] (express cxt (fnext args))))
-
-(defn action-input [cxt args]
-  (let [cxt (if (> (count args) 1)
-              (action-print cxt (butlast args))
-              cxt)]
-    (if (empty? (:input cxt))
-      (-> cxt
-          (assoc-in [:input-blocked?] true)
-          (assoc-in [:jumped?] true) ; Prevent IP advance
-          )
-      (let [id (last args)]
-        ;; (println "INPUT RECEIVED:" (peek (:input cxt)))
-        ;; (println "STORING TO:" id)
-        (-> cxt
-            (assoc-in [:input-blocked?] false)
-            (#(action-assign % [id [:constant (peek (:input %))]]))
-            (#(do
-                (when (:echo-input? %)
-                  (println (peek (:input %))))
-                %))
-            (update-in [:input] pop))))))
 
 (defn action-none [cxt _] cxt)
 
@@ -612,6 +590,27 @@
         out-string (apply str strings newln)]
     (update-in cxt [:output] #(conj % out-string))))
 
+(defn action-input [cxt args]
+  (let [cxt (if (> (count args) 1)
+              (action-print cxt (butlast args))
+              cxt)]
+    (if (empty? (:input cxt))
+      (-> cxt
+          (assoc-in [:input-blocked?] true)
+          (assoc-in [:jumped?] true) ; Prevent IP advance
+          )
+      (let [id (last args)]
+        ;; (println "INPUT RECEIVED:" (peek (:input cxt)))
+        ;; (println "STORING TO:" id)
+        (-> cxt
+            (assoc-in [:input-blocked?] false)
+            (#(action-assign % [id [:constant (peek (:input %))]]))
+            (#(do
+                (when (:echo-input? %)
+                  (println (peek (:input %))))
+                %))
+            (update-in [:input] pop))))))
+
 (defn execute [cxt {:keys [action args] :as stmt}]
   ;; (println "trying to execute " stmt)
   ;; (println "action:" action "args:" args)
@@ -643,6 +642,8 @@
     (assoc-in cxt [:jumped?] false)
     (update-in cxt [:ip] next)))
 
+;;;; Cheap console I/O for REPL testing
+
 (defn show-output [cxt]
   (if (empty? (:output cxt))
     cxt
@@ -656,6 +657,8 @@
   (if (:input-blocked? cxt)
     (update-in cxt [:input] #(conj % (read-line)))
     cxt))
+
+;;;; Basic runners for REPL testing
 
 (defn run [cxt]
   (loop [cxt  (-> cxt
