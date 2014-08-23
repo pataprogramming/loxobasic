@@ -566,7 +566,6 @@
             {:id id :label label :end-val end-expr :step step}))
 
 (defn action-next [cxt args]
-  ;; FIXME Update this for multiple arguments
   (let [[id & rst]               args
         {:keys [label end-val step]} (get-in cxt [:for-map (second id)])]
     (if id
@@ -588,7 +587,6 @@
     cxt))
 
 (defn action-print [cxt args]
-  ;; FIXME: Update for multiple args
   ;;(println "TRYING TO PRINT" args)
   ;;(println "EXPRESSION SHOULD BE" (express cxt (first args)))
   (let [strings    (apply str
@@ -656,7 +654,6 @@
   (if (empty? (:output cxt))
     cxt
     (do
-      ;; FIXME: Trailing ';' for print instead of println
       (print (peek (:output cxt)))
       (flush)
       (recur (update-in cxt [:output] pop)))))
