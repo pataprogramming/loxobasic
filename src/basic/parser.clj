@@ -7,6 +7,14 @@
 
 ;;;; Test programs
 
+(def qq "10 DIM A(5)
+         15 X=2
+         20 DIM B(X,X,3)
+         25 B(1,1,2)=99
+         30 FOR N=1 TO 5
+         40 A(N)=10-N
+         50 NEXT N")
+
 (def rr "5  P=-1
          10 DEF F(P,Q)=(P+Q)*G(P)
          15 DEF G(Q)=P*Q
@@ -92,6 +100,7 @@
                   | statement
     statement     = assignment
                   | def
+                  | dim
                   | print
                   | input
                   | data
@@ -115,6 +124,7 @@
 
     parameters    = id-list
     def           = <'DEF' ws*> id <ws* '(' ws*> parameters <ws* ')' ws* '=' ws*> expression
+    dim           = <'DIM' ws*> id <ws* '(' ws*> arguments <ws* ')'>
 
     glue          = <';'>
     <print-list>  = (glue* | expression) (<ws>* (glue* | glue expression))*
@@ -153,7 +163,7 @@
     on-goto       = <'ON' ws> expression <ws 'GOTO' ws> expression-list
     on-gosub       = <'ON' ws> expression <ws 'GOSUB' ws> expression-list
 
-    assignment    = <('LET' <ws>)?> id <ws*> <'='> <ws*> expression
+    assignment    = <('LET' <ws>)?> (id | id-call) <ws*> <'='> <ws*> expression
 
     constant      = integer | string
     expression    = and_exp <ws*> 'OR' <ws*> expression
@@ -501,6 +511,7 @@
   (let [{:keys [kind] :as entry} (get-in cxt [:symbols id])]
     (case kind
       :function (call cxt entry params scope)
+      :array    (get-in cxt (concat [:symbol id :matrix] params))
       (do (println "UNKNOWN ID TYPE" kind)))))
 
 (defn resolve-id [cxt id & [scope]]
@@ -552,15 +563,34 @@
   (assoc cxt :program program))
 
 (defn action-assign [cxt args]
-  (assoc-in cxt [:symbols (first args)]
-            {:kind  :constant
-             :value (express cxt (fnext args))}))
+  (case (ffirst args)
+    :id      (let [[id & [exp]] args]
+               (assoc-in cxt [:symbols id]
+                         {:kind  :constant
+                          :value (express cxt exp)}))
+    :id-call (let [[[_ id & params] & [exp]] args
+                   resolved                  (map (partial express cxt)
+                                                  params)]
+               (println "ARRAY ASSIGNMENT TO" id "PATH" resolved)
+               (println "FULL ARGS" args)
+               (assoc-in cxt (concat [:symbols id :matrix] resolved)
+                         {:kind  :constant
+                          :value (express cxt exp)}))))
 
 (defn action-def [cxt [id parameters body]]
   (assoc-in cxt [:symbols id]
             {:kind :function
              :parameters parameters
              :body body}))
+
+(defn action-dim [cxt [id & args]]
+  (println "ACTION-DIM FOR" id "WITH" args)
+  (let [resolved (map (partial express cxt) args)
+        matrix   (vec (reduce #(vec (repeat %2 %1)) nil resolved))]
+    (assoc-in cxt [:symbols id]
+              {:kind       :array
+               :dimensions (count args)
+               :matrix     matrix})))
 
 (defn action-none [cxt _] cxt)
 
@@ -683,6 +713,7 @@
     :store-for  (action-store-for cxt args)
     :next       (action-next cxt args)
     :def        (action-def cxt args)
+    :dim        (action-dim cxt args)
     :remark     (action-none cxt args)
     :return     (action-return cxt args)
     :end        (assoc-in cxt [:running?] false)))
