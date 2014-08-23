@@ -13,7 +13,11 @@
          25 B(1,1,2)=99
          30 FOR N=1 TO 5
          40 A(N)=10-N
-         50 NEXT N")
+         50 NEXT N
+         60 FOR N=1 TO 5
+         70 PRINT A(N);\" \";
+         80 NEXT N
+         90 PRINT")
 
 (def rr "5  P=-1
          10 DEF F(P,Q)=(P+Q)*G(P)
@@ -129,7 +133,7 @@
     glue          = <';'>
     <print-list>  = (glue* | expression) (<ws>* (glue* | glue expression))*
 
-    print         = <'PRINT' ws> print-list
+    print         = <'PRINT'> (<ws*> print-list)?
     input         = <'INPUT' ws> (print-list glue)? id
 
     <notnl>       =#'[^\n\r]+'
@@ -498,24 +502,27 @@
                                      #(express cxt % scope)) params)
         new-scope         (zipmap formal-params param-values)
         body              (:body func)]
-    (println "WITHIN CALL, RESOLVING" body "WITH" new-scope)
-    (println "FORMAL PARAMS ARE" formal-params)
-    (println "SUPPLIED ARGUMENTS ARE" params)
-    (println "RESOLVED ARGUMENTS ARE" param-values)
+    ;; (println "WITHIN CALL, RESOLVING" body "WITH" new-scope)
+    ;; (println "FORMAL PARAMS ARE" formal-params)
+    ;; (println "SUPPLIED ARGUMENTS ARE" params)
+    ;; (println "RESOLVED ARGUMENTS ARE" param-values)
     (express cxt body new-scope)))
 
 (defn resolve-call [cxt [_ id & params :as exp] & [scope]]
-  (println "RESOLVING CALL TO" id "WITH" params)
-  (println "EXPRESSION" exp)
-  (println "SYMBOLS" (get-in cxt [:symbols id]))
+  ;; (println "RESOLVING CALL TO" id "WITH" params)
+  ;; (println "EXPRESSION" exp)
+  ;; (println "SYMBOL" (get-in cxt [:symbols id]))
   (let [{:keys [kind] :as entry} (get-in cxt [:symbols id])]
     (case kind
       :function (call cxt entry params scope)
-      :array    (get-in cxt (concat [:symbol id :matrix] params))
+      :array    (let [{:keys [value]}
+                      (get-in cxt (concat [:symbols id :matrix]
+                                          (map (partial express cxt) params)))]
+                  value)
       (do (println "UNKNOWN ID TYPE" kind)))))
 
 (defn resolve-id [cxt id & [scope]]
-  (when scope (println "RESOLVE" id "IN" scope))
+  ;; (when scope (println "RESOLVE" id "IN" scope))
   (let [{:keys [kind] :as entry} (if (contains? scope id)
                                    (get scope id)
                                    (get-in cxt [:symbols id]))]
@@ -571,8 +578,8 @@
     :id-call (let [[[_ id & params] & [exp]] args
                    resolved                  (map (partial express cxt)
                                                   params)]
-               (println "ARRAY ASSIGNMENT TO" id "PATH" resolved)
-               (println "FULL ARGS" args)
+               ;; (println "ARRAY ASSIGNMENT TO" id "PATH" resolved)
+               ;; (println "FULL ARGS" args)
                (assoc-in cxt (concat [:symbols id :matrix] resolved)
                          {:kind  :constant
                           :value (express cxt exp)}))))
@@ -584,9 +591,9 @@
              :body body}))
 
 (defn action-dim [cxt [id & args]]
-  (println "ACTION-DIM FOR" id "WITH" args)
+  ;;(println "ACTION-DIM FOR" id "WITH" args)
   (let [resolved (map (partial express cxt) args)
-        matrix   (vec (reduce #(vec (repeat %2 %1)) nil resolved))]
+        matrix   (vec (reduce #(vec (repeat (inc %2) %1)) nil resolved))]
     (assoc-in cxt [:symbols id]
               {:kind       :array
                :dimensions (count args)
@@ -623,17 +630,17 @@
   (reset-data-pointer cxt))
 
 (defn action-jump [cxt label]
-  (println "action-jump to" label)
+  ;; (println "action-jump to" label)
   (-> cxt
       (assoc-in [:ip] (avl/subrange (:program cxt) >= label))
       (assoc-in [:jumped?] true)))
 
 (defn action-goto [cxt [dest]]
-  (println "action-goto to" dest)
+  ;; (println "action-goto to" dest)
   (let [dest-label (case (first dest)
                      :label (second dest)
                      [(express cxt dest)])]
-    (println "jumping to" dest-label)
+    ;;(println "jumping to" dest-label)
     (action-jump cxt dest-label)))
 
 (defn action-gosub [cxt args]
