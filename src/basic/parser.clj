@@ -234,15 +234,6 @@
     [:label (apply vector label (second t))]
     t))
 
-;; (defn rewrite-input [t]
-;;   (if (and (vector? t)
-;;            (= (first t) :input))
-;;     (let [[_ id] t]
-;;       [:input
-;;        [:statement [:label [0]] [:check-input]]
-;;        [:statement [:label [1]] [:get-input id]]])
-;;     t))
-
 (defn rewrite-if-then [t]
   (if (and (vector? t)
            (= (first t) :if-then))
