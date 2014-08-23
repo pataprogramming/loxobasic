@@ -7,7 +7,11 @@
 
 ;;;; Test programs
 
-(def rr "10 DEF F(X)=X*10")
+(def rr "5  P=-1
+         10 DEF F(P,Q)=(P+Q)*G(P)
+         15 DEF G(Q)=P*Q
+         20 PRINT F(5,4)
+         30 REM OUTPUT SHOULD BE 45")
 
 (def ss "5  PRINT ;
          10 INPUT \"LET'S HAVE IT: \";D
@@ -181,7 +185,11 @@
                   | value
     <value>       = <'('> expression <')'>
                   | id
+                  | id-call
                   | constant
+
+    <arguments> = expression (<ws* ',' ws*> expression)*
+    id-call       = id <ws* '(' ws*> arguments <ws* ')'>
 
     integer = #'[0-9]+'
     <digit> = #'[0-9]'
@@ -353,6 +361,13 @@
                                 [:goto [:label [end-label]]]]]))))))
     t))
 
+(defn rewrite-def [t]
+  (if (and (vector? t)
+           (= (first t) :def))
+    (let [[_ [_ id] [_ & parameters] body] t]
+      [:def [:id id] parameters body])
+    t))
+
 (defn strip-control [t]
   (if (and (vector? t)
            (#{:then-clause :else-clause} (first t)))
@@ -425,6 +440,7 @@
        (w/postwalk rewrite-if-then-else)
        (w/postwalk rewrite-if-then)
        (w/postwalk rewrite-for)
+       (w/postwalk rewrite-def)
        (w/postwalk flatten-expression-list)
        (w/postwalk rewrite-on-goto)
        (w/postwalk rewrite-on-gosub)
@@ -465,40 +481,66 @@
 (defn btrue? [cxt exp]
   (not (bfalse? cxt exp)))
 
-(defn resolve-id [cxt [_ id]]
-  (let [[typ valu] (get-in cxt [:symbols id])]
-    (case typ
-      :constant valu
-      (do (println "UNKNOWN ID TYPE" typ)))))
+(defn call [cxt func params scope]
+  (let [formal-params     (:parameters func)
+        param-values      (map (comp #(hash-map :kind  :constant
+                                                :value % )
+                                     #(express cxt % scope)) params)
+        new-scope         (zipmap formal-params param-values)
+        body              (:body func)]
+    (println "WITHIN CALL, RESOLVING" body "WITH" new-scope)
+    (println "FORMAL PARAMS ARE" formal-params)
+    (println "SUPPLIED ARGUMENTS ARE" params)
+    (println "RESOLVED ARGUMENTS ARE" param-values)
+    (express cxt body new-scope)))
 
-(defn express [cxt exp]
+(defn resolve-call [cxt [_ id & params :as exp] & [scope]]
+  (println "RESOLVING CALL TO" id "WITH" params)
+  (println "EXPRESSION" exp)
+  (println "SYMBOLS" (get-in cxt [:symbols id]))
+  (let [{:keys [kind] :as entry} (get-in cxt [:symbols id])]
+    (case kind
+      :function (call cxt entry params scope)
+      (do (println "UNKNOWN ID TYPE" kind)))))
+
+(defn resolve-id [cxt id & [scope]]
+  (when scope (println "RESOLVE" id "IN" scope))
+  (let [{:keys [kind] :as entry} (if (contains? scope id)
+                                   (get scope id)
+                                   (get-in cxt [:symbols id]))]
+    (case kind
+      :constant (:value entry)
+      (do (println "UNKNOWN ID TYPE" kind)))))
+
+(defn express [cxt exp & [scope]]
   (if (coll? exp)
     (let [[typ a b] exp
-          ;a (express cxt (fnext exp))
-          ;b (express cxt (first (next (next exp))))
-          ]
+          ;;a (express cxt (fnext exp))
+          ;;b (express cxt (first (next (next exp))))
+          expr (fn expr [e] (express cxt e scope))]
       #_(println "type:" typ "a:" a "b:" b)
       (case typ
         nil       nil
-        :expression (express cxt a)
+        :expression (expr a)
         :constant a
-        :id       (resolve-id cxt exp)
-        :+        (+ (express cxt a) (express cxt b))
-        :-        (if (not (nil? (express cxt b)))
-                    (- (express cxt a) (express cxt b))
-                    (- (express cxt a)))
-        :*        (* (express cxt a) (express cxt b))
-        :/        (/ (express cxt a) (express cxt) b)
+        :id       (resolve-id cxt exp scope)
+        :id-call  (resolve-call cxt exp scope)
+        :+        (+ (expr a) (expr b))
+        :-        (if (not (nil? (expr b)))
+                    (- (expr a) (expr b))
+                    (- (expr a)))
+        :*        (* (expr a) (expr b))
+        :/        (/ (expr a) (expr) b)
         :AND      (bbool cxt (and (btrue? cxt a) (btrue? cxt b)))
         :OR       (bbool cxt (or  (btrue? cxt a) (btrue? cxt b)))
         :NOT      (bbool cxt (not (btrue? cxt a)))
-        :=        (bbool cxt (= (express cxt a) (express cxt b)))
-        :>        (bbool cxt (> (express cxt a) (express cxt b)))
-        :<        (bbool cxt (< (express cxt a) (express cxt b)))
-        :<=       (bbool cxt (<= (express cxt a) (express cxt b)))
-        :>=       (bbool cxt (>= (express cxt a) (express cxt b)))
-        :<>       (bbool cxt (not= (express cxt a) (express cxt b)))
-        :><       (bbool cxt (not= (express cxt a) (express cxt b)))
+        :=        (bbool cxt (= (expr a) (expr b)))
+        :>        (bbool cxt (> (expr a) (expr b)))
+        :<        (bbool cxt (< (expr a) (expr b)))
+        :<=       (bbool cxt (<= (expr a) (expr b)))
+        :>=       (bbool cxt (>= (expr a) (expr b)))
+        :<>       (bbool cxt (not= (expr a) (expr b)))
+        :><       (bbool cxt (not= (expr a) (expr b)))
         (throw (Throwable. (str "can't handle" typ)))
         ))
     exp))
@@ -510,7 +552,15 @@
   (assoc cxt :program program))
 
 (defn action-assign [cxt args]
-  (assoc-in cxt [:symbols (second (first args))] [:constant (express cxt (fnext args))]))
+  (assoc-in cxt [:symbols (first args)]
+            {:kind  :constant
+             :value (express cxt (fnext args))}))
+
+(defn action-def [cxt [id parameters body]]
+  (assoc-in cxt [:symbols id]
+            {:kind :function
+             :parameters parameters
+             :body body}))
 
 (defn action-none [cxt _] cxt)
 
@@ -632,6 +682,7 @@
     :gosub      (action-gosub cxt args)
     :store-for  (action-store-for cxt args)
     :next       (action-next cxt args)
+    :def        (action-def cxt args)
     :remark     (action-none cxt args)
     :return     (action-return cxt args)
     :end        (assoc-in cxt [:running?] false)))
