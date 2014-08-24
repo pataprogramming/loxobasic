@@ -246,7 +246,7 @@
     id-call       = id <ws* '(' ws*> arguments <ws* ')'>
 
     integer = #'[0-9]+'
-    number = #'[0-9]+(\\.[0-9]+)?'
+    number = #'([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+)'
     <digit> = #'[0-9]'
     <string> = <'\"'> #'[^\"]*' <'\"'>
     <alpha> = #'[A-Za-z]'
@@ -263,9 +263,15 @@
   ([a b c]
      [(keyword b) a c]))
 
+(defn process-number-string [s]
+  (clojure.edn/read-string
+   (cond (= (first s) \.) (str "0" s)
+         (= (last s) \.)  (str s "0")
+         :else            s)))
+
 (defn process-expressions [parse-tree]
   (ip/transform
-   {:number      (comp clojure.edn/read-string str)
+   {:number      (comp process-number-string str)
     :integer     (comp clojure.edn/read-string str)
     :alphanum    str
     :id          (fn idify [& id] [:id (apply str id)])
@@ -548,7 +554,7 @@
    ["STR$"   ["X"]          (fn builtin-str    [x]      (str x))]
    ["TAB"    ["X"]          (fn builtin-tab    [x]      (apply str (repeat x " ")))]
    ["TAN"    ["X"]          (fn builtin-tan    [x]      (Math/tan x))]
-   ["VAL"    ["X$"]         (fn builtin-val    [x$]     (clojure.edn/read-string x$))]])
+   ["VAL"    ["X$"]         (fn builtin-val    [x$]     (process-number-string x$))]])
 
 
 (defn generate-builtins [cxt]
