@@ -189,6 +189,8 @@
     return        = <'RETURN'>
     end           = <'END' | 'STOP'>
 
+    reset         = <'RESET'>
+
     on-goto       = <'ON' ws> expression <ws 'GOTO' ws> expression-list
     on-gosub       = <'ON' ws> expression <ws 'GOSUB' ws> expression-list
 
@@ -735,6 +737,15 @@
                 %))
             (update-in [:input] pop))))))
 
+(defn action-reset [cxt & _]
+  (-> cxt
+      (dissoc [:ip :data-pointer :running? :jumped? :substack
+               :for-map :output :input :input-blocked?
+               :program :symbols])
+      (generate-builtins)))
+
+
+
 (defn execute [cxt {:keys [action args] :as stmt}]
   ;; (println "trying to execute " stmt)
   ;; (println "action:" action "args:" args)
@@ -754,6 +765,7 @@
     :dim        (action-dim cxt args)
     :remark     (action-none cxt args)
     :return     (action-return cxt args)
+    :reset      (action-reset cxt args)
     :end        (assoc-in cxt [:running?] false)))
 
 (defn interpret [cxt line]
@@ -800,7 +812,7 @@
    ["LEFT$"  ["X$","Y"]     (fn builtin-left$  [x$,y]   (subs x$ 0 y))]
    ["LEN"    ["X$"]         (fn builtin-len    [x$]     (count x$))]
    ["LOG"    ["X"]          (fn builtin-log    [x]      (Math/log x))]
-   ["MID$"   ["X$","Y","Z"] (fn builtin-mid$   [x$,y,z] (subs x$ (dec y) z))]
+   ["MID$"   ["X$","Y","Z"] (fn builtin-mid$   [x$,y,z] (subs x$ (dec y) (+ (dec y) z)))]
    ["RND"    ["X"]          (fn builtin-rnd    [x]      (* x (rand)))]
    ["RIGHT$" ["X$","Y"]     (fn builtin-right$ [x$,y]   (subs x$ (- (count x$) y)))]
    ["SGN"    ["X"]          (fn builtin-sgn    [x]      (int (Math/signum (double x))))]
@@ -818,7 +830,6 @@
 
 (defn run [cxt]
   (loop [cxt  (-> cxt
-                  (generate-builtins)
                   (assoc :ip (:program cxt))
                   (assoc :data-pointer [nil nil])
                   (assoc :running? true)
@@ -840,8 +851,11 @@
         (recur cxt)
         (-> cxt (dissoc :ip :running? :jumped? :substack))))))
 
+(defn repl [cxt]
+  )
+
 (defn srun [prog]
   (pp/pprint (->> prog
                   parse
-                  (store-program {})
+                  (#(store-program (action-reset {}) %))
                   run)))
