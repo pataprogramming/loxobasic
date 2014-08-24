@@ -7,6 +7,31 @@
 
 ;;;; Test programs
 
+(def oo "10  PRINT \"ABS(-5)=\";ABS(-5)
+         20  PRINT \"ASC(FOO)=\";ASC(\"FOO\")
+         30  PRINT \"ATN(25)=\";ATN(2.5)
+         40  PRINT \"CHR$(69)=\";CHR$(69)
+         50  PRINT \"COS(1)=\";COS(1)
+         60  PRINT \"EXP(2)=\";EXP(2)
+         70  PRINT \"INT(4.5)=\";INT(4.5)
+         80  PRINT \"LEFT$('BAR',2)=\";LEFT$(\"BAR\",2)
+         90  PRINT \"LEN('WEASEL')=\";LEN(\"WEASEL\")
+         100 PRINT \"LOG(2.178)=\";LOG(2.178)
+         110 PRINT \"MID$('FOOBARBAZ',3,4)=\";MID$(\"FOOBARBAZ\",3,4)
+         120 PRINT \"RND(1)=\";RND(1)
+         130 PRINT \"RIGHT$('FOOBARBAZ',3)=\";RIGHT$(\"FOOBARBAZ\",3)
+         140 PRINT \"SGN(-5)=\";SGN(-5)
+         150 PRINT \"STR$(8.45)=\";STR$(8.45)
+         160 PRINT \"SQR(100)=\";SQR(100)
+         170 PRINT \"FOO\";TAB(10);\"FOO\"
+         180 PRINT \"TAN(10)=\";TAN(10)
+         190 PRINT \"VAL('500.2')=\";VAL(\"500.2\")")
+
+(def pp "10 A=2.2
+         20 B=0.1
+         30 C=1
+         40 PRINT A+B+C")
+
 (def qq "10 DIM A(5)
          15 X=2
          20 DIM B(X,X,3)
@@ -139,7 +164,7 @@
     <notnl>       =#'[^\n\r]+'
     remark        = <'REM' notnl*>
 
-    <datum>       = string | integer
+    <datum>       = string | number
     <data-list>   = datum (<ws* ',' ws*> datum)*
     data          = <'DATA' ws> data-list
 
@@ -169,7 +194,7 @@
 
     assignment    = <('LET' <ws>)?> (id | id-call) <ws*> <'='> <ws*> expression
 
-    constant      = integer | string
+    constant      = number | string
     expression    = and_exp <ws*> 'OR' <ws*> expression
                   | and_exp
 
@@ -206,12 +231,13 @@
     id-call       = id <ws* '(' ws*> arguments <ws* ')'>
 
     integer = #'[0-9]+'
+    number = #'[0-9]+(\\.[0-9]+)?'
     <digit> = #'[0-9]'
     <string> = <'\"'> #'[^\"]*' <'\"'>
     <alpha> = #'[A-Za-z]'
     alphanum = #'[A-Za-z0-9]'
     id       = #'[A-Za-z][A-Za-z0-9$]*'
-    nl = #'[\n\r]+'
+    nl = ws* #'[\n\r]+ (ws* | [\n\r]*)'
     ws = #'[ \t\f]+'"))
 
 (defn treeify
@@ -224,7 +250,8 @@
 
 (defn process-expressions [parse-tree]
   (ip/transform
-   {:integer     (comp clojure.edn/read-string str)
+   {:number      (comp clojure.edn/read-string str)
+    :integer     (comp clojure.edn/read-string str)
     :alphanum    str
     :id          (fn idify [& id] [:id (apply str id)])
     :expression  #(vector :expression (treeify %))
@@ -450,7 +477,6 @@
 (defn proc-steps [t]
   (->> t
        (w/postwalk rewrite-cond-destination)
-       ;;(w/postwalk rewrite-input)
        (w/postwalk rewrite-if-then-else)
        (w/postwalk rewrite-if-then)
        (w/postwalk rewrite-for)
@@ -495,11 +521,14 @@
 (defn btrue? [cxt exp]
   (not (bfalse? cxt exp)))
 
-(defn call [cxt func params scope]
+(defn call-builtin [cxt {:keys [function]} resolved-args scope]
+  (apply function resolved-args))
+
+(defn call-function [cxt func resolved-args scope]
   (let [formal-params     (:parameters func)
         param-values      (map (comp #(hash-map :kind  :constant
                                                 :value % )
-                                     #(express cxt % scope)) params)
+                                     resolved-args))
         new-scope         (zipmap formal-params param-values)
         body              (:body func)]
     ;; (println "WITHIN CALL, RESOLVING" body "WITH" new-scope)
@@ -512,12 +541,14 @@
   ;; (println "RESOLVING CALL TO" id "WITH" params)
   ;; (println "EXPRESSION" exp)
   ;; (println "SYMBOL" (get-in cxt [:symbols id]))
-  (let [{:keys [kind] :as entry} (get-in cxt [:symbols id])]
+  (let [{:keys [kind] :as entry} (get-in cxt [:symbols id])
+        resolved-args            (map #(express cxt % scope) params)]
     (case kind
-      :function (call cxt entry params scope)
+      :function (call-function cxt entry resolved-args scope)
+      :builtin  (call-builtin cxt entry resolved-args scope)
       :array    (let [{:keys [value]}
                       (get-in cxt (concat [:symbols id :matrix]
-                                          (map (partial express cxt) params)))]
+                                          resolved-args))]
                   value)
       (do (println "UNKNOWN ID TYPE" kind)))))
 
@@ -752,10 +783,42 @@
     (update-in cxt [:input] #(conj % (read-line)))
     cxt))
 
+(defn make-builtin [cxt [name params function]]
+  (assoc-in cxt [:symbols [:id name]]
+            {:kind     :builtin
+             :params   (vec (map #(vector :id %) params))
+             :function function}))
+
+(def builtins
+  [["ABS"    ["X"]          (fn builtin-abs    [x]      (Math/abs x))]
+   ["ASC"    ["X$"]         (fn builtin-asc    [x]      (int (.charAt x 0)))]
+   ["ATN"    ["X"]          (fn builtin-atn    [x]      (Math/atan x))]
+   ["CHR$"   ["X"]          (fn builtin-chr$   [x$]     (str (char x$)))]
+   ["COS"    ["X"]          (fn builtin-cos    [x]      (Math/cos x))]
+   ["EXP"    ["X"]          (fn builtin-exp    [x]      (Math/exp x))]
+   ["INT"    ["X"]          (fn builtin-int    [x]      (int x))]
+   ["LEFT$"  ["X$","Y"]     (fn builtin-left$  [x$,y]   (subs x$ 0 y))]
+   ["LEN"    ["X$"]         (fn builtin-len    [x$]     (count x$))]
+   ["LOG"    ["X"]          (fn builtin-log    [x]      (Math/log x))]
+   ["MID$"   ["X$","Y","Z"] (fn builtin-mid$   [x$,y,z] (subs x$ (dec y) z))]
+   ["RND"    ["X"]          (fn builtin-rnd    [x]      (* x (rand)))]
+   ["RIGHT$" ["X$","Y"]     (fn builtin-right$ [x$,y]   (subs x$ (- (count x$) y)))]
+   ["SGN"    ["X"]          (fn builtin-sgn    [x]      (int (Math/signum (double x))))]
+   ["SIN"    ["X"]          (fn builtin-sin    [x]      (Math/sin x))]
+   ["SQR"    ["X"]          (fn builtin-sqr    [x]      (Math/sqrt x))]
+   ["STR$"   ["X"]          (fn builtin-str    [x]      (str x))]
+   ["TAB"    ["X"]          (fn builtin-tab    [x]      (apply str (repeat x " ")))]
+   ["TAN"    ["X"]          (fn builtin-tan    [x]      (Math/tan x))]
+   ["VAL"    ["X$"]         (fn builtin-val    [x$]     (clojure.edn/read-string x$))]])
+
+(defn generate-builtins [cxt]
+  (reduce make-builtin cxt builtins))
+
 ;;;; Basic runners for REPL testing
 
 (defn run [cxt]
   (loop [cxt  (-> cxt
+                  (generate-builtins)
                   (assoc :ip (:program cxt))
                   (assoc :data-pointer [nil nil])
                   (assoc :running? true)
