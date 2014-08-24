@@ -749,11 +749,14 @@
             {:id id :label label :end-val end-expr :step step}))
 
 (defn action-next [cxt args]
-  (let [[id & rst]               args
+  (let [[id & rst]                   args
         {:keys [label end-val step]} (get-in cxt [:for-map (second id)])]
     (if id
       (let [cxt (action-assign cxt [id [:+ id step]])]
-        (if (btrue? cxt [:<= id end-val])
+        (if (btrue? cxt [:OR
+                         [:AND [:> step 0] [:<= id end-val]]
+                         [:AND [:< step 0] [:>= id end-val]]
+                         [:= id end-val]])
           (action-goto cxt [label])
           (recur cxt rst)))
       cxt)))
