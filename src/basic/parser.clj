@@ -118,9 +118,11 @@
 
 (def basic
   (ip/parser
-   "program       = lines
-                  | <ws*> statements <ws*> <nl*>
-    <lines>         = lines <nl+> line
+   "<root>        = program | <ws*> directive <ws*> <nl*>
+    directive     = statement
+    program       = lines
+
+    <lines>       = lines <nl+> line <nl*>
                   | line <nl*>
     line          = <ws*> label <ws*> statements <ws*>
     label         = integer
@@ -146,6 +148,11 @@
                   | on-goto
                   | on-gosub
                   | end
+                  | load
+                  | dump
+                  | quit
+                  | reset
+                  | run
 
     <expression-list> = expression (<ws* ','> expression)*
     param-id      = id <'(' ws*> expression-list <ws* ')'>
@@ -156,7 +163,7 @@
     dim           = <'DIM' ws*> id <ws* '(' ws*> arguments <ws* ')'>
 
     glue          = <';'>
-    <print-list>  = (glue* | expression) (<ws>* (glue* | glue expression))*
+    <print-list>  = (glue* | expression) (<ws>* (glue* | expression))*
 
     print         = <'PRINT'> (<ws*> print-list)?
     input         = <'INPUT' ws> (print-list glue)? id
@@ -168,8 +175,7 @@
     <data-list>   = datum (<ws* ',' ws*> datum)*
     data          = <'DATA' ws> data-list
 
-    <id-list>     = id (<ws* ',' ws*> id)*
-    read          = <'READ' ws> id-list
+    <id-list>     = (id | id-call) (<ws* ',' ws*> (id | id-call))*    read          = <'READ' ws> id-list
 
     restore       = <'RESTORE'>
 
@@ -184,12 +190,17 @@
                     (<ws 'STEP' ws> expression)?
     next          = <'NEXT' ws> id-list
 
-    goto          = <'GOTO' <ws>> expression
-    gosub         = <'GOSUB' <ws>> expression
+    goto          = <'GOTO' ws> expression
+    gosub         = <'GOSUB' ws> expression
     return        = <'RETURN'>
     end           = <'END' | 'STOP'>
 
     reset         = <'RESET'>
+    run           = <'RUN'>
+    <filename>    = string
+    load          = <'LOAD' ws> filename
+    dump          = <'DUMP'>
+    quit          = <'QUIT'>
 
     on-goto       = <'ON' ws> expression <ws 'GOTO' ws> expression-list
     on-gosub       = <'ON' ws> expression <ws 'GOSUB' ws> expression-list
@@ -239,7 +250,7 @@
     <alpha> = #'[A-Za-z]'
     alphanum = #'[A-Za-z0-9]'
     id       = #'[A-Za-z][A-Za-z0-9$]*'
-    nl = ws* #'[\n\r]+ (ws* | [\n\r]*)'
+    nl = ws* #'[\n\r]+' (ws* | #'[\n\r]*')
     ws = #'[ \t\f]+'"))
 
 (defn treeify
@@ -477,23 +488,25 @@
     t))
 
 (defn proc-steps [t]
-  (->> t
-       (w/postwalk rewrite-cond-destination)
-       (w/postwalk rewrite-if-then-else)
-       (w/postwalk rewrite-if-then)
-       (w/postwalk rewrite-for)
-       (w/postwalk rewrite-def)
-       (w/postwalk flatten-expression-list)
-       (w/postwalk rewrite-on-goto)
-       (w/postwalk rewrite-on-gosub)
-       (w/postwalk rewrite-tree-labels)
-       (w/postwalk strip-control)
-       (w/postwalk rewrite-line)
-       (w/postwalk collapse-statements)
-       (w/postwalk unnest-statements)
-       (w/postwalk statementify)
-       (programmify)
-       ))
+  (if (ip/failure? t)
+    (println "FAILED PARSING, SKIPPING PROC-STEPS")
+    (->> t
+         (w/postwalk rewrite-cond-destination)
+         (w/postwalk rewrite-if-then-else)
+         (w/postwalk rewrite-if-then)
+         (w/postwalk rewrite-for)
+         (w/postwalk rewrite-def)
+         (w/postwalk flatten-expression-list)
+         (w/postwalk rewrite-on-goto)
+         (w/postwalk rewrite-on-gosub)
+         (w/postwalk rewrite-tree-labels)
+         (w/postwalk strip-control)
+         (w/postwalk rewrite-line)
+         (w/postwalk collapse-statements)
+         (w/postwalk unnest-statements)
+         (w/postwalk statementify)
+         (programmify)
+         )))
 
 (defn process [s]
   (-> s process-expressions))
@@ -501,8 +514,45 @@
 (defn parse [s]
   (-> s
       basic
+      first
       process
       proc-steps))
+
+;;;; Builtins
+
+(defn make-builtin [cxt [name params function]]
+  (assoc-in cxt [:symbols [:id name]]
+            {:kind     :builtin
+             :params   (vec (map #(vector :id %) params))
+             :function function}))
+
+(def builtins
+  [["ABS"    ["X"]          (fn builtin-abs    [x]      (Math/abs x))]
+   ["ASC"    ["X$"]         (fn builtin-asc    [x]      (int (.charAt x 0)))]
+   ["ATN"    ["X"]          (fn builtin-atn    [x]      (Math/atan x))]
+   ["CHR$"   ["X"]          (fn builtin-chr$   [x$]     (str (char x$)))]
+   ["COS"    ["X"]          (fn builtin-cos    [x]      (Math/cos x))]
+   ["EXP"    ["X"]          (fn builtin-exp    [x]      (Math/exp x))]
+   ["INT"    ["X"]          (fn builtin-int    [x]      (int x))]
+   ["LEFT$"  ["X$","Y"]     (fn builtin-left$  [x$,y]   (subs x$ 0 y))]
+   ["LEN"    ["X$"]         (fn builtin-len    [x$]     (count x$))]
+   ["LOG"    ["X"]          (fn builtin-log    [x]      (Math/log x))]
+   ["MID$"   ["X$","Y","Z"] (fn builtin-mid$   [x$,y,z] (subs x$ (dec y) (+ (dec y) z)))]
+   ["RND"    ["X"]          (fn builtin-rnd    [x]      (* x (rand)))]
+   ["RIGHT$" ["X$","Y"]     (fn builtin-right$ [x$,y]   (subs x$ (- (count x$) y)))]
+   ["SGN"    ["X"]          (fn builtin-sgn    [x]      (int (Math/signum (double x))))]
+   ["SIN"    ["X"]          (fn builtin-sin    [x]      (Math/sin x))]
+   ["SQR"    ["X"]          (fn builtin-sqr    [x]      (Math/sqrt x))]
+   ["STR$"   ["X"]          (fn builtin-str    [x]      (str x))]
+   ["TAB"    ["X"]          (fn builtin-tab    [x]      (apply str (repeat x " ")))]
+   ["TAN"    ["X"]          (fn builtin-tan    [x]      (Math/tan x))]
+   ["VAL"    ["X$"]         (fn builtin-val    [x$]     (clojure.edn/read-string x$))]])
+
+
+(defn generate-builtins [cxt]
+  (reduce make-builtin cxt builtins))
+
+
 
 ;;;; Interpret and execute instructions
 
@@ -635,8 +685,10 @@
 (defn action-none [cxt _] cxt)
 
 (defn reset-data-pointer [cxt]
-  (let [ptr (drop-while #(not= (:action (val %)) :data) (:program cxt))]
-    (assoc-in cxt [:data-pointer] [ptr (:args (second (first ptr)))])))
+  (if (:program cxt)
+    (let [ptr (drop-while #(not= (:action (val %)) :data) (:program cxt))]
+      (assoc-in cxt [:data-pointer] [ptr (:args (second (first ptr)))]))
+    cxt))
 
 (defn advance-data-pointer [cxt]
   (assoc-in
@@ -744,7 +796,29 @@
                :program :symbols])
       (generate-builtins)))
 
+(defn action-load [cxt & [filename]]
+  (let [file    (str "resources/bcg/" (first filename) ".bas")
+        ;;_       (println "TRYING TO LOAD FROM" file)
+        prog    (slurp file)
+        ;;_       (println "READ IN\n" prog)
+        p1      (basic prog)
+        ;;_       (println "PARSE1")
+        ;;_       (pp/pprint p1)
+        p2      (if (ip/failure? p1) p1 (process (first p1)))
+        ;;_       (pp/pprint p2)
+        parsed  (if (ip/failure? p2) p2 (proc-steps p2))
+        ]
+    (if (ip/failure? parsed)
+      (-> cxt
+          (update-in [:output] #(conj % parsed)))
+      (-> cxt
+          (action-reset)
+          (store-program parsed)))))
 
+(declare run)
+
+(defn action-run [cxt & _]
+  (run cxt))
 
 (defn execute [cxt {:keys [action args] :as stmt}]
   ;; (println "trying to execute " stmt)
@@ -766,6 +840,8 @@
     :remark     (action-none cxt args)
     :return     (action-return cxt args)
     :reset      (action-reset cxt args)
+    :load       (action-load cxt args)
+    :run        (action-run cxt args)
     :end        (assoc-in cxt [:running?] false)))
 
 (defn interpret [cxt line]
@@ -792,39 +868,9 @@
 
 (defn get-input [cxt]
   (if (:input-blocked? cxt)
-    (update-in cxt [:input] #(conj % (read-line)))
+    (update-in cxt [:input] #(conj % (clojure.edn/read-string (read-line))))
     cxt))
 
-(defn make-builtin [cxt [name params function]]
-  (assoc-in cxt [:symbols [:id name]]
-            {:kind     :builtin
-             :params   (vec (map #(vector :id %) params))
-             :function function}))
-
-(def builtins
-  [["ABS"    ["X"]          (fn builtin-abs    [x]      (Math/abs x))]
-   ["ASC"    ["X$"]         (fn builtin-asc    [x]      (int (.charAt x 0)))]
-   ["ATN"    ["X"]          (fn builtin-atn    [x]      (Math/atan x))]
-   ["CHR$"   ["X"]          (fn builtin-chr$   [x$]     (str (char x$)))]
-   ["COS"    ["X"]          (fn builtin-cos    [x]      (Math/cos x))]
-   ["EXP"    ["X"]          (fn builtin-exp    [x]      (Math/exp x))]
-   ["INT"    ["X"]          (fn builtin-int    [x]      (int x))]
-   ["LEFT$"  ["X$","Y"]     (fn builtin-left$  [x$,y]   (subs x$ 0 y))]
-   ["LEN"    ["X$"]         (fn builtin-len    [x$]     (count x$))]
-   ["LOG"    ["X"]          (fn builtin-log    [x]      (Math/log x))]
-   ["MID$"   ["X$","Y","Z"] (fn builtin-mid$   [x$,y,z] (subs x$ (dec y) (+ (dec y) z)))]
-   ["RND"    ["X"]          (fn builtin-rnd    [x]      (* x (rand)))]
-   ["RIGHT$" ["X$","Y"]     (fn builtin-right$ [x$,y]   (subs x$ (- (count x$) y)))]
-   ["SGN"    ["X"]          (fn builtin-sgn    [x]      (int (Math/signum (double x))))]
-   ["SIN"    ["X"]          (fn builtin-sin    [x]      (Math/sin x))]
-   ["SQR"    ["X"]          (fn builtin-sqr    [x]      (Math/sqrt x))]
-   ["STR$"   ["X"]          (fn builtin-str    [x]      (str x))]
-   ["TAB"    ["X"]          (fn builtin-tab    [x]      (apply str (repeat x " ")))]
-   ["TAN"    ["X"]          (fn builtin-tan    [x]      (Math/tan x))]
-   ["VAL"    ["X$"]         (fn builtin-val    [x$]     (clojure.edn/read-string x$))]])
-
-(defn generate-builtins [cxt]
-  (reduce make-builtin cxt builtins))
 
 ;;;; Basic runners for REPL testing
 
@@ -852,10 +898,32 @@
         (-> cxt (dissoc :ip :running? :jumped? :substack))))))
 
 (defn repl [cxt]
-  )
+  (print "> ")
+  (flush)
+  (let [input    (read-line)
+        parsed   (try (parse input)
+                      (catch Exception e
+                        (str "PARSE ERROR:" (.getMessage e))
+                        (.printStackTrace e)))
+        ;;_        (println "TRYING TO INTERPRET" parsed)
+        next-cxt  (if (ip/failure? parsed)
+                    (println "PARSE FAILED:" parsed)
+                    (-> cxt
+                        (#(case (first parsed)
+                            :program   (store-program % parsed)
+                            :directive (execute % (fnext parsed))
+                            (do (println parsed) %)))
+                        (show-output)
+                        (get-input)))]
+    (pp/pprint next-cxt)
+    (recur next-cxt)))
 
 (defn srun [prog]
   (pp/pprint (->> prog
                   parse
                   (#(store-program (action-reset {}) %))
                   run)))
+
+(defn -main [& args]
+  (println "LoxoBASIC Interpreter")
+  (repl (action-reset {})))
