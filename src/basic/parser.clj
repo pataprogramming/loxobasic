@@ -160,10 +160,12 @@
 
     parameters    = id-list
     def           = <'DEF' ws*> id <ws* '(' ws*> parameters <ws* ')' ws* '=' ws*> expression
-    dim           = <'DIM' ws*> id <ws* '(' ws*> arguments <ws* ')'>
+    dim-arg      = id <ws* '(' ws*> arguments <ws* ')'>
+    dim           = <'DIM' ws> dim-arg (<ws* ',' ws*> dim-arg)*
 
+    tight-glue    = <' '>
     glue          = <';'>
-    <print-list>  = (glue* | expression) (<ws>* (glue* | expression))*
+    <print-list>  = (glue* | expression) ((tight-glue* | glue*) expression)* glue?
 
     print         = <'PRINT'> (<ws*> print-list)?
     input         = <'INPUT' ws> (print-list glue)? id
@@ -673,14 +675,17 @@
              :parameters parameters
              :body body}))
 
-(defn action-dim [cxt [id & args]]
-  ;;(println "ACTION-DIM FOR" id "WITH" args)
-  (let [resolved (map (partial express cxt) args)
-        matrix   (vec (reduce #(vec (repeat (inc %2) %1)) nil resolved))]
-    (assoc-in cxt [:symbols id]
-              {:kind       :array
-               :dimensions (count args)
-               :matrix     matrix})))
+(defn action-dim [cxt & [[[_ id & dims]] & rst]]
+  ;; (println "ID" id "DIMS" dims "RST" rst)
+  (if id
+    (let [resolved (map (partial express cxt) dims)
+          matrix   (vec (reduce #(vec (repeat (inc %2) %1)) nil resolved))]
+      (recur (assoc-in cxt [:symbols id]
+                       {:kind       :array
+                        :dimensions (count dims)
+                        :matrix     matrix})
+             rst))
+    cxt))
 
 (defn action-none [cxt _] cxt)
 
@@ -763,14 +768,17 @@
   ;;(println "EXPRESSION SHOULD BE" (express cxt (first args)))
   (let [strings    (apply str
                           (map (partial express cxt)
-                               (filter #(not= % [:glue]) args)))
+                               (map #(case %
+                                       [:glue] " "
+                                       [:tight-glue] " "
+                                       %) args)))
         newln      (if (= (last args) [:glue]) "" "\n")
         out-string (apply str strings newln)]
     (update-in cxt [:output] #(conj % out-string))))
 
 (defn action-input [cxt args]
   (let [cxt (if (> (count args) 1)
-              (action-print cxt (butlast args))
+              (action-print cxt (conj (butlast args) "?" [:glue]))
               cxt)]
     (if (empty? (:input cxt))
       (-> cxt
