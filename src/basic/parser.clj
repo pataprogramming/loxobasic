@@ -253,7 +253,8 @@
     alphanum = #'[A-Za-z0-9]'
     id       = #'[A-Za-z][A-Za-z0-9$]*'
     nl = ws* #'[\n\r]+' (ws* | #'[\n\r]*')
-    ws = #'[ \t\f]+'"))
+    ws = #'[ \t\f]+'"
+   :string-ci true))
 
 (defn treeify
   ([a]
