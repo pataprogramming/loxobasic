@@ -788,7 +788,7 @@
 
 (defn action-input [cxt args]
   (let [cxt (if (> (count args) 1)
-              (action-print cxt (conj (butlast args) "?" [:glue]))
+              (action-print cxt (concat (butlast args) ["?"] [:glue]))
               cxt)]
     (if (empty? (:input cxt))
       (-> cxt
@@ -892,6 +892,23 @@
 
 ;;;; Basic runners for REPL testing
 
+(defn dissoc-values-where [m pred]
+                (reduce (fn [acc kv]
+                          (if (pred (val kv))
+                            (dissoc acc (key kv))
+                            acc)) m m))
+
+(defn hide-extraneous [cxt]
+  (-> cxt
+      (update-in [:symbols]
+                 (fn [s] (dissoc-values-where s #(= (get % :kind) :builtin))))
+      (dissoc :program)
+      (update-in [:ip] first)))
+
+(defn dump-cxt [cxt]
+  (pp/pprint (hide-extraneous cxt))
+  cxt)
+
 (defn run [cxt]
   (loop [cxt  (-> cxt
                   (assoc :ip (:program cxt))
@@ -906,11 +923,17 @@
                   (assoc :echo-input? true)
                   (reset-data-pointer))]
     (let [stmt (val (first (:ip cxt)))
-          cxt  (->
-                (execute cxt stmt)
-                (show-output)
-                (get-input)
-                (maybe-advance-ip))]
+          cxt  (-> cxt
+                   (#(try
+                       (execute % stmt)
+                       (catch Exception e
+                         (println "CRASH:" (.printStackTrace e))
+                         (flush)
+                         (dump-cxt %)
+                         (assoc-in % [:running?] false))))
+                   (show-output)
+                   (get-input)
+                   (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
         (-> cxt (dissoc :ip :running? :jumped? :substack))))))
@@ -933,7 +956,7 @@
                             (do (println parsed) %)))
                         (show-output)
                         (get-input)))]
-    (pp/pprint next-cxt)
+    ;;(dump-cxt next-cxt)
     (recur next-cxt)))
 
 (defn srun [prog]
