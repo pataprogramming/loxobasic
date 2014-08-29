@@ -118,10 +118,14 @@
 
 (def basic
   (ip/parser
-   "<root>        = program | <ws*> directive <ws*> <nl*>
+   "<root>        = program
+                  | <ws*> directive <ws* nl*>
+                  | <ws*> line <ws* nl*>
+                  | <ws*> empty-line <ws* nl*>
     directive     = statement
     program       = lines
 
+    empty-line    = label
     <lines>       = lines <nl+> line <nl*>
                   | line <nl*>
     line          = <ws*> label <ws*> statements <ws*>
@@ -934,6 +938,11 @@
                         (get-input)))]
     (pp/pprint next-cxt)
     (recur next-cxt)))
+
+(defn handle-parsed [cxt ast]
+  (case (first ast)
+    :program (store-program (action-reset cxt) ast)
+    :line    (action-store )))
 
 (defn srun [prog]
   (pp/pprint (->> prog
