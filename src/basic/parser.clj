@@ -569,6 +569,12 @@
 
 ;;;; Interpret and execute instructions
 
+(defn set-error [cxt err-string & trace]
+  (-> cxt
+      (assoc :error err-string)
+      (assoc :trace trace)
+      (assoc :running false)))
+
 (declare express)
 
 (defn bbool [cxt exp]
@@ -913,31 +919,51 @@
   (pp/pprint (hide-extraneous cxt))
   cxt)
 
+(defn clear-error [cxt]
+  (dissoc cxt :error :trace))
+
+(defn error? [cxt]
+  (contains? cxt :error))
+
+(defn initialize [cxt]
+  (-> cxt
+      (assoc :ip (:program cxt))
+      (assoc :data-pointer [nil nil])
+      (assoc :running? true)
+      (assoc :jumped? false)
+      (assoc :substack '())
+      (assoc :for-map {})
+      (assoc :output (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input-blocked? false)
+      (assoc :echo-input? true)
+      (clear-error)
+      (reset-data-pointer)))
+
+(defn step [cxt]
+  (let [stmt (val (first (:ip cxt)))]
+    (try
+      (execute cxt stmt)
+      (catch Exception e
+        (set-error cxt "Clojure host error" e)))))
+
+(defn perform-io-or-error [cxt]
+  (if (error? cxt)
+    (do (print "CRASH:" (:error cxt))
+        (when (:exception cxt)
+          (println "TRACE:" (.printStackTrace (:trace cxt))))
+        (flush)
+        (dump-cxt cxt))
+    (-> cxt
+        (show-output)
+        (get-input))))
+
 (defn run [cxt]
-  (loop [cxt  (-> cxt
-                  (assoc :ip (:program cxt))
-                  (assoc :data-pointer [nil nil])
-                  (assoc :running? true)
-                  (assoc :jumped? false)
-                  (assoc :substack '())
-                  (assoc :for-map {})
-                  (assoc :output (clojure.lang.PersistentQueue/EMPTY))
-                  (assoc :input (clojure.lang.PersistentQueue/EMPTY))
-                  (assoc :input-blocked? false)
-                  (assoc :echo-input? true)
-                  (reset-data-pointer))]
-    (let [stmt (val (first (:ip cxt)))
-          cxt  (-> cxt
-                   (#(try
-                       (execute % stmt)
-                       (catch Exception e
-                         (println "CRASH:" (.printStackTrace e))
-                         (flush)
-                         (dump-cxt %)
-                         (assoc-in % [:running?] false))))
-                   (show-output)
-                   (get-input)
-                   (maybe-advance-ip))]
+  (loop [cxt (initialize cxt)]
+    (let [cxt (-> cxt
+                  (step)
+                  (perform-io-or-error)
+                  (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
         (-> cxt (dissoc :ip :running? :jumped? :substack))))))
@@ -966,7 +992,7 @@
 (defn handle-parsed [cxt ast]
   (case (first ast)
     :program (store-program (action-reset cxt) ast)
-    :line    (action-store )))
+    :line    (store cxt ast)))
 
 (defn srun [prog]
   (pp/pprint (->> prog
