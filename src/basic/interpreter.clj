@@ -4,6 +4,30 @@
             [clojure.data.avl :as avl]
             [instaparse.core :as ip]))
 
+
+(defn error? [cxt]
+  (contains? cxt :error))
+
+;;;; Input and output
+;;;; Handlers must be supplied by the user
+
+(defn perform-output! [cxt handler]
+  (if (empty? (:output cxt))
+    cxt
+    (recur (handler cxt) handler)))
+
+(defn perform-input! [cxt handler!]
+  (if (:input-blocked? cxt)
+    (handler! cxt)
+    cxt))
+
+(defn perform-io-or-error! [cxt in-handler out-handler err-handler]
+  (if (error? cxt)
+    (err-handler cxt)
+    (-> cxt
+        (perform-output! cxt out-handler)
+        (perform-input! cxt in-handler))))
+
 ;;;; Interpret and execute instructions
 
 (defn set-error [cxt err-string & trace]
@@ -177,7 +201,7 @@
   ;; (println "action-jump to" label)
   (-> cxt
       (assoc-in [:ip] (avl/subrange (:program cxt) >= label))
-      (assoc-in [:jumped?] true)))
+      (assoc-in [:advance?] false)))
 
 (defn action-goto [cxt [dest]]
   ;; (println "action-goto to" dest)
@@ -212,7 +236,7 @@
 (defn action-return [cxt _]
   (-> cxt
       (assoc-in [:ip] (peek (:substack cxt)))
-      (assoc-in [:jumped?] true)
+      (assoc-in [:advance?] false)
       (update-in [:substack] pop)))
 
 (defn action-test-jump [cxt args]
@@ -240,7 +264,7 @@
     (if (empty? (:input cxt))
       (-> cxt
           (assoc-in [:input-blocked?] true)
-          (assoc-in [:jumped?] true) ; Prevent IP advance
+          (assoc-in [:advance?] false)
           )
       (let [id (last args)]
         ;; (println "INPUT RECEIVED:" (peek (:input cxt)))
@@ -256,7 +280,7 @@
 
 (defn action-reset [cxt & _]
   (-> cxt
-      (dissoc [:ip :data-pointer :running? :jumped? :substack
+      (dissoc [:ip :data-pointer :running? :advance? :substack
                :for-map :output :input :input-blocked?
                :program :symbols])
       (generate-builtins)))
@@ -318,10 +342,45 @@
       (execute cxt ast))))
 
 (defn maybe-advance-ip [cxt]
-  (if (:jumped? cxt)
-    (assoc-in cxt [:jumped?] false)
+  (if (:advance? cxt)
+    (assoc-in cxt [:advance?] true)
     (update-in cxt [:ip] next)))
 
 ;; FIXME: Add the 'step' function here. It should take
 ;; input and output handler functions that operate on
 ;; the cxt structure
+
+(defn clear-error [cxt]
+  (dissoc cxt :error :trace))
+
+(defn initialize [cxt]
+  (-> cxt
+      (assoc :ip (:program cxt))
+      (assoc :data-pointer [nil nil])
+      (assoc :running? true)
+      (assoc :advance? true)
+      (assoc :substack '())
+      (assoc :for-map {})
+      (assoc :output (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input-blocked? false)
+      (assoc :echo-input? true)
+      (clear-error)
+      (reset-data-pointer)))
+
+(defn step [cxt]
+  (let [stmt (val (first (:ip cxt)))]
+    (try
+      (execute cxt stmt)
+      (catch Exception e
+        (set-error cxt "Clojure host error" e)))))
+
+(defn run [cxt in-handler out-handler err-handler]
+  (loop [cxt (initialize cxt)]
+    (let [cxt (-> cxt
+                  (step)
+                  (perform-io-or-error! cxt in-handler out-handler err-handler)
+                  (maybe-advance-ip))]
+      (if (and (:running? cxt) (:ip cxt))
+        (recur cxt)
+        (-> cxt (dissoc :ip :running? :advance? :substack))))))

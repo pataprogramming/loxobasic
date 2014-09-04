@@ -1,6 +1,6 @@
 (ns basic.parser
-  (:require [basic.test :refer [compare-seq]]
-            [basic.util :refer [def-]]
+  (:require [basic.util :refer [compare-seq def-]]
+            [clojure.edn :as edn]
             [clojure.data.avl :as avl]
             [clojure.walk :as w]
             [instaparse.core :as ip]))
@@ -160,7 +160,7 @@
      [(keyword b) a c]))
 
 (defn process-number-string [s]
-  (clojure.edn/read-string
+  (edn/read-string
    (cond (= (first s) \.) (str "0" s)
          (= (last s) \.)  (str s "0")
          :else            s)))
@@ -168,7 +168,7 @@
 (defn process-expressions [parse-tree]
   (ip/transform
    {:number      (comp process-number-string str)
-    :integer     (comp clojure.edn/read-string str)
+    :integer     (comp edn/read-string str)
     :alphanum    str
     :id          (fn idify [& id] [:id (apply str id)])
     :expression  #(vector :expression (treeify %))
