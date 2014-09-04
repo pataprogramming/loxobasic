@@ -1,4 +1,8 @@
-(ns basic.interpreter)
+(ns basic.interpreter
+  (:require [basic.builtins :refer [generate-builtins]]
+            [basic.parser :refer [parse]]
+            [clojure.data.avl :as avl]
+            [instaparse.core :as ip]))
 
 ;;;; Interpret and execute instructions
 
@@ -261,13 +265,14 @@
   (let [file    (str "resources/bcg/" (first filename) ".bas")
         ;;_       (println "TRYING TO LOAD FROM" file)
         prog    (slurp file)
-        ;;_       (println "READ IN\n" prog)
-        p1      (basic prog)
-        ;;_       (println "PARSE1")
-        ;;_       (pp/pprint p1)
-        p2      (if (ip/failure? p1) p1 (process (first p1)))
-        ;;_       (pp/pprint p2)
-        parsed  (if (ip/failure? p2) p2 (proc-steps p2))
+        ;; ;;_       (println "READ IN\n" prog)
+        ;; p1      (basic prog)
+        ;; ;;_       (println "PARSE1")
+        ;; ;;_       (pp/pprint p1)
+        ;; p2      (if (ip/failure? p1) p1 (process (first p1)))
+        ;; ;;_       (pp/pprint p2)
+        ;;parsed  (if (ip/failure? p2) p2 (proc-steps p2))
+        parsed   (parse prog)
         ]
     (if (ip/failure? parsed)
       (-> cxt
@@ -306,7 +311,7 @@
     :end        (assoc-in cxt [:running?] false)))
 
 (defn interpret [cxt line]
-  (let [ast (first (vals  (process (basic line))))]
+  (let [ast (first (vals  (parse line)))]
     (println "ast:" ast)
     (if (contains? ast :label)
       (store cxt ast)
@@ -316,3 +321,7 @@
   (if (:jumped? cxt)
     (assoc-in cxt [:jumped?] false)
     (update-in cxt [:ip] next)))
+
+;; FIXME: Add the 'step' function here. It should take
+;; input and output handler functions that operate on
+;; the cxt structure

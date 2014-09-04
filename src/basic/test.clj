@@ -98,11 +98,3 @@
 
 (def yy "5 REM HOWDY
          10 DATA 1,2,3,4")
-
-(defn compare-seq [[a & as] [b & bs]]
-  (if (and (nil? a) (nil? b))
-    0
-    (case (compare a b)
-      -1 -1
-      1  1
-      0  (recur as bs))))

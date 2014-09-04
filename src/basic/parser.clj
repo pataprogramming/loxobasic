@@ -1,9 +1,9 @@
 (ns basic.parser
-  (:require [instaparse.core :as ip]
-            [clojure.edn]
+  (:require [basic.test :refer [compare-seq]]
+            [basic.util :refer [def-]]
             [clojure.data.avl :as avl]
             [clojure.walk :as w]
-            [clojure.pprint :as pp]))
+            [instaparse.core :as ip]))
 
 ;;;; Parsing program text into AVL map
 

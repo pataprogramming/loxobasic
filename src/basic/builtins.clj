@@ -1,4 +1,6 @@
-(ns basic.builtins)
+(ns basic.builtins
+  (:require [basic.parser :refer [process-number-string]]
+            [basic.util :refer [def-]]))
 
 (defn- make-builtin [cxt [name params function]]
   (assoc-in cxt [:symbols [:id name]]

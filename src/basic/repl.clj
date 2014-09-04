@@ -1,3 +1,12 @@
+(ns basic.repl
+  (:require [basic.interpreter :refer [action-reset execute
+                                       maybe-advance-ip
+                                       reset-data-pointer set-error
+                                       store store-program]]
+            [basic.parser :refer [parse]]
+            [clojure.pprint :as pp]
+            [instaparse.core :as ip]))
+
 ;;;; Cheap console I/O for REPL testing
 
 (defn show-output [cxt]
