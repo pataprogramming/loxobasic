@@ -25,8 +25,8 @@
   (if (error? cxt)
     (err-handler cxt)
     (-> cxt
-        (perform-output! cxt out-handler)
-        (perform-input! cxt in-handler))))
+        (perform-output! out-handler)
+        (perform-input! in-handler))))
 
 ;;;; Interpret and execute instructions
 
@@ -379,7 +379,7 @@
   (loop [cxt (initialize cxt)]
     (let [cxt (-> cxt
                   (step)
-                  (perform-io-or-error! cxt in-handler out-handler err-handler)
+                  (perform-io-or-error! in-handler out-handler err-handler)
                   (maybe-advance-ip))]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)

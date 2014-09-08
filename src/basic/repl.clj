@@ -16,18 +16,11 @@
   (update-in cxt [:input] #(conj % (clojure.edn/read-string (read-line))))
   cxt)
 
-;;;; Basic runners for REPL testing
-
-(defn dissoc-values-where [m pred]
-                (reduce (fn [acc kv]
-                          (if (pred (val kv))
-                            (dissoc acc (key kv))
-                            acc)) m m))
-
 (defn hide-extraneous [cxt]
   (-> cxt
       (update-in [:symbols]
-                 (fn [s] (dissoc-values-where s #(= (get % :kind) :builtin))))
+                 (fn [s] (dissoc-values-where s #(= (get % :kind)
+                                                   :builtin))))
       (dissoc :program)
       (update-in [:ip] first)))
 
@@ -35,13 +28,21 @@
   (pp/pprint (hide-extraneous cxt))
   cxt)
 
-
 (defn handle-error! [cxt]
   (print "CRASH:" (:error cxt))
   (when (:exception cxt)
     (println "TRACE:" (.printStackTrace (:trace cxt))))
   (flush)
   (dump-cxt cxt))
+
+
+;;;; Basic runners for REPL testing
+
+(defn dissoc-values-where [m pred]
+                (reduce (fn [acc kv]
+                          (if (pred (val kv))
+                            (dissoc acc (key kv))
+                            acc)) m m))
 
 (defn handle-parsed [cxt ast]
   (case (first ast)
@@ -74,7 +75,7 @@
   (pp/pprint (->> prog
                   parse
                   (#(store-program (action-reset {}) %))
-                  run)))
+                  (#(run % get-input! show-output! handle-error!)))))
 
 (defn -main [& args]
   (println "LoxoBASIC Interpreter")
