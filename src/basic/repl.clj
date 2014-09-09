@@ -2,6 +2,7 @@
   (:require [basic.interpreter :refer [action-reset execute run store
                                        store-program]]
             [basic.parser :refer [parse]]
+            [basic.util :refer [dissoc-values-where]]
             [clojure.pprint :as pp]
             [instaparse.core :as ip]))
 
@@ -38,13 +39,7 @@
 
 ;;;; Basic runners for REPL testing
 
-(defn dissoc-values-where [m pred]
-                (reduce (fn [acc kv]
-                          (if (pred (val kv))
-                            (dissoc acc (key kv))
-                            acc)) m m))
-
-(defn handle-parsed [cxt ast]
+ (defn handle-parsed [cxt ast]
   (case (first ast)
     :program (store-program (action-reset cxt) ast)
     :line    (store cxt ast)))
