@@ -14,8 +14,7 @@
   (update-in cxt [:output] pop))
 
 (defn get-input! [cxt]
-  (update-in cxt [:input] #(conj % (clojure.edn/read-string (read-line))))
-  cxt)
+  (update-in cxt [:input] #(conj % (clojure.edn/read-string (read-line)))))
 
 (defn hide-extraneous [cxt]
   (-> cxt
