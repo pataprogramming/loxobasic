@@ -344,7 +344,8 @@
 (defn maybe-advance-ip [cxt]
   (if (:advance? cxt)
     (assoc-in cxt [:advance?] true)
-    (update-in cxt [:ip] next)))
+    (-> cxt
+        (update-in [:ip] next))))
 
 ;; FIXME: Add the 'step' function here. It should take
 ;; input and output handler functions that operate on
@@ -380,7 +381,9 @@
     (let [cxt (-> cxt
                   (step)
                   (perform-io-or-error! in-handler out-handler err-handler)
-                  (maybe-advance-ip))]
+                  (maybe-advance-ip)
+                  ;;(assoc-in [:running?] false) ;; FIXME: Not Terminating
+                  )]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
         (-> cxt (dissoc :ip :running? :advance? :substack))))))
