@@ -4,7 +4,6 @@
             [clojure.data.avl :as avl]
             [instaparse.core :as ip]))
 
-
 (defn error? [cxt]
   (contains? cxt :error))
 
@@ -336,16 +335,16 @@
 
 (defn interpret [cxt line]
   (let [ast (first (vals  (parse line)))]
-    (println "ast:" ast)
+    #_(println "ast:" ast)
     (if (contains? ast :label)
       (store cxt ast)
       (execute cxt ast))))
 
 (defn maybe-advance-ip [cxt]
   (if (:advance? cxt)
-    (assoc-in cxt [:advance?] true)
     (-> cxt
-        (update-in [:ip] next))))
+        (update-in [:ip] next))
+    (assoc-in cxt [:advance?] true)))
 
 ;; FIXME: Add the 'step' function here. It should take
 ;; input and output handler functions that operate on
@@ -386,4 +385,5 @@
                   )]
       (if (and (:running? cxt) (:ip cxt))
         (recur cxt)
-        (-> cxt (dissoc :ip :running? :advance? :substack))))))
+        (-> cxt ;(dissoc :ip :running? :advance? :substack)
+            )))))

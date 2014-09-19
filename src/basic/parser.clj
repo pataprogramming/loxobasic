@@ -11,7 +11,6 @@
   (ip/parser
    "<root>        = program
                   | <ws*> directive <ws* nl*>
-                  | <ws*> line <ws* nl*>
                   | <ws*> empty-line <ws* nl*>
     directive     = statement
     program       = lines
@@ -415,7 +414,8 @@
 (defn- process [s]
   (-> s
       process-expressions
-      proc-steps))
+      proc-steps
+      ))
 
 (defn parse [s]
   (-> s
