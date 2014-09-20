@@ -129,7 +129,9 @@
   (assoc-in cxt [:program (:label line)] line))
 
 (defn store-program [cxt program]
-  (assoc cxt :program program))
+  (update-in cxt [:program] #(merge program))
+  ;(assoc cxt :program program)
+  )
 
 (defn action-assign [cxt args]
   (case (ffirst args)
