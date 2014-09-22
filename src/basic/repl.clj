@@ -38,6 +38,11 @@
 
 ;;;; Basic runners for REPL testing
 
+ (defn handle-parsed [cxt ast]
+  (case (first ast)
+    :program (store-program (action-reset cxt) ast)
+    :line    (store cxt ast)))
+
 
 (defn repl [cxt]
   (print "> ")
