@@ -2,13 +2,30 @@
   (:require [basic.builtins :refer [generate-builtins]]
             [basic.parser :refer [parse]]
             [clojure.data.avl :as avl]
-            [instaparse.core :as ip]
-            [clojure.pprint :as pp]
-            [clojure.core.async :as async :refer [go go-loop >! <!!
-                                                  chan alt!]]))
+            [instaparse.core :as ip]))
 
 (defn error? [cxt]
   (contains? cxt :error))
+
+;;;; Input and output
+;;;; Handlers must be supplied by the user
+
+(defn perform-output! [cxt handler]
+  (if (empty? (:output cxt))
+    cxt
+    (recur (handler cxt) handler)))
+
+(defn perform-input! [cxt handler!]
+  (if (:input-blocked? cxt)
+    (handler! cxt)
+    cxt))
+
+(defn perform-io-or-error! [cxt in-handler out-handler err-handler]
+  (if (error? cxt)
+    (err-handler cxt)
+    (-> cxt
+        (perform-output! out-handler)
+        (perform-input! in-handler))))
 
 ;;;; Interpret and execute instructions
 
@@ -239,22 +256,34 @@
                                        %) args)))
         newln      (if (= (last args) [:glue]) "" "\n")
         out-string (apply str strings newln)]
-    (go (>! (:output cxt) out-string))))
+    (update-in cxt [:output] #(conj % out-string))))
 
 (defn action-input [cxt args]
   (let [cxt (if (> (count args) 1)
               (action-print cxt (concat (butlast args) ["?"] [:glue]))
               cxt)]
-    (let [id  (last args)
-          inp (go (<!! (:input cxt)))]
-      (when (:echo-input? cxt)
-        (println inp))
-      (action-assign cxt [id [:constant inp]]))))
+    (if (empty? (:input cxt))
+      (-> cxt
+          (assoc-in [:input-blocked?] true)
+          (assoc-in [:advance?] false)
+          )
+      (let [id (last args)]
+        ;; (println "INPUT RECEIVED:" (peek (:input cxt)))
+        ;; (println "STORING TO:" id)
+        (-> cxt
+            (assoc-in [:input-blocked?] false)
+            (#(action-assign % [id [:constant (peek (:input %))]]))
+            (#(do
+                (when (:echo-input? %)
+                  (println (peek (:input %))))
+                %))
+            (update-in [:input] pop))))))
 
 (defn action-reset [cxt & _]
   (-> cxt
       (dissoc [:ip :data-pointer :running? :advance? :substack
-               :for-map :input-blocked? :program :symbols])
+               :for-map :output :input :input-blocked?
+               :program :symbols])
       (generate-builtins)))
 
 (defn action-load [cxt & [filename]]
@@ -272,10 +301,7 @@
         ]
     (if (ip/failure? parsed)
       (-> cxt
-          (go
-            (>! (:output cxt) parsed))
-          ;;(update-in [:output] #(conj % parsed))
-          )
+          (update-in [:output] #(conj % parsed)))
       (-> cxt
           (action-reset)
           (store-program parsed)))))
@@ -331,62 +357,31 @@
 
 (defn initialize [cxt]
   (-> cxt
-      (merge {:ip (:program cxt)
-              :data-pointer [nil nil]
-              :running?     false
-              :advance?     true
-              :substack     '()
-              :for-map      {}
-              :echo-input?  true})
+      (assoc :ip (:program cxt))
+      (assoc :data-pointer [nil nil])
+      (assoc :running? true)
+      (assoc :advance? true)
+      (assoc :substack '())
+      (assoc :for-map {})
+      (assoc :output (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input (clojure.lang.PersistentQueue/EMPTY))
+      (assoc :input-blocked? false)
+      (assoc :echo-input? true)
       (clear-error)
       (reset-data-pointer)))
 
-(defn handle-parsed [cxt ast]
-  (case (first ast)
-    :program (store-program (action-reset cxt) ast)
-    :line    (store cxt ast)))
-
 (defn step [cxt]
-  (if (and (:running? cxt) (:ip cxt))
-    (let [stmt (val (first (:ip cxt)))]
-      (try
-        (execute cxt stmt)
-        (catch Exception e
-          (set-error cxt "Clojure host error" e)))
-      (maybe-advance-ip))
-    (go
-      (let [inp    (<!! (:input cxt))
-            parsed (parse inp)]
-        (pp/pprint parsed)
-        (handle-parsed cxt parsed)))))
+  (let [stmt (val (first (:ip cxt)))]
+    (try
+      (execute cxt stmt)
+      (catch Exception e
+        (set-error cxt "Clojure host error" e)))))
 
-(defn fresh-context [interface-map]
-  (-> interface-map
-      (generate-builtins)))
-
-
-(defn start [{:keys [input output control] :or {input (chan) output (chan) control (chan)}}]
-  (let [new-cxt (fresh-context {:input input :output output :control control})
-        control (:control new-cxt)]
-    [new-cxt (go-loop [cxt new-cxt]
-               (let [next (alt!
-                            (:control cxt) ([cmd _] :terminate)
-                            :default       (step cxt))]
-                 (if (= next :terminate)
-                   cxt
-                   (recur next))))]))
-
-(defn make-interfaces []
-  {:input (chan) :output (chan) :control (chan)})
-
-(defn stuff [chan val]
-  (go (>! chan val)))
-
-(defn run [cxt]
+(defn run [cxt in-handler out-handler err-handler]
   (loop [cxt (initialize cxt)]
     (let [cxt (-> cxt
                   (step)
-                  ;;(perform-io-or-error! in-handler out-handler err-handler)
+                  (perform-io-or-error! in-handler out-handler err-handler)
                   (maybe-advance-ip)
                   ;;(assoc-in [:running?] false) ;; FIXME: Not Terminating
                   )]
