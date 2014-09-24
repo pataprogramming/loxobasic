@@ -1,0 +1,19 @@
+* Interpreter core -> One step at a time.
+
+1. If :ip is nil or :running? is false, tries to read from :input.
+ a. If :input is empty, sets :input-blocked? and returns
+ b. If :input is not empty, parses and executes one line
+2. If :ip is not nil and :running? is true, execute the current
+   program statement
+ a. May produce :output
+ b. May read from :input or set :input-blocked? if empty
+ c. May set :advance-ip? to false
+3. Maybe advance :ip
+4. Return
+
+* Interface -> Mediates between REPL or other I/O source and interpreter, spins
+
+1. If there is a :terminate on :control chan, end.
+2. If there is any output in the interpreter, send it to :output chan
+3. If interpreter's input is blocked, transfer input from :input chan
+4. Advance the interpreter a step and update the state atom

@@ -373,19 +373,26 @@
 (defn step [cxt]
   (let [stmt (val (first (:ip cxt)))]
     (try
-      (execute cxt stmt)
+      (-> cxt
+          (execute stmt)
+          (maybe-advance-ip))
       (catch Exception e
         (set-error cxt "Clojure host error" e)))))
 
-(defn run [cxt in-handler out-handler err-handler]
-  (loop [cxt (initialize cxt)]
-    (let [cxt (-> cxt
-                  (step)
-                  (perform-io-or-error! in-handler out-handler err-handler)
-                  (maybe-advance-ip)
-                  ;;(assoc-in [:running?] false) ;; FIXME: Not Terminating
-                  )]
-      (if (and (:running? cxt) (:ip cxt))
-        (recur cxt)
-        (-> cxt ;(dissoc :ip :running? :advance? :substack)
-            )))))
+(defn input-or-step [cxt]
+  (if (:input-blocked? cxt)
+    (assoc cxt :input-blocked? (empty? (:input cxt)))
+    (step cxt)))
+
+;; (defn run [cxt in-handler out-handler err-handler]
+;;   (loop [cxt (initialize cxt)]
+;;     (let [cxt (-> cxt
+;;                   (step)
+;;                   (perform-io-or-error! in-handler out-handler err-handler)
+;;                   (maybe-advance-ip)
+;;                   ;;(assoc-in [:running?] false) ;; FIXME: Not Terminating
+;;                   )]
+;;       (if (and (:running? cxt) (:ip cxt))
+;;         (recur cxt)
+;;         (-> cxt ;(dissoc :ip :running? :advance? :substack)
+;;             )))))
