@@ -1,6 +1,7 @@
 (ns basic.repl
   (:require [basic.interpreter :refer [action-reset execute run store
-                                       store-program]]
+                                       store-program fresh-context]]
+            [basic.interface :refer [make-interface]]
             [basic.parser :refer [parse]]
             [basic.util :refer [dissoc-values-where]]
             [clojure.pprint :as pp]
@@ -38,7 +39,7 @@
 
 ;;;; Basic runners for REPL testing
 
- (defn handle-parsed [cxt ast]
+(defn handle-parsed [cxt ast]
   (case (first ast)
     :program (store-program (action-reset cxt) ast)
     :line    (store cxt ast)))

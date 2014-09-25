@@ -10,22 +10,22 @@
 ;;;; Input and output
 ;;;; Handlers must be supplied by the user
 
-(defn perform-output! [cxt handler]
-  (if (empty? (:output cxt))
-    cxt
-    (recur (handler cxt) handler)))
+;; (defn perform-output! [cxt handler]
+;;   (if (empty? (:output cxt))
+;;     cxt
+;;     (recur (handler cxt) handler)))
 
-(defn perform-input! [cxt handler!]
-  (if (:input-blocked? cxt)
-    (handler! cxt)
-    cxt))
+;; (defn perform-input! [cxt handler!]
+;;   (if (:input-blocked? cxt)
+;;     (handler! cxt)
+;;     cxt))
 
-(defn perform-io-or-error! [cxt in-handler out-handler err-handler]
-  (if (error? cxt)
-    (err-handler cxt)
-    (-> cxt
-        (perform-output! out-handler)
-        (perform-input! in-handler))))
+;; (defn perform-io-or-error! [cxt in-handler out-handler err-handler]
+;;   (if (error? cxt)
+;;     (err-handler cxt)
+;;     (-> cxt
+;;         (perform-output! out-handler)
+;;         (perform-input! in-handler))))
 
 ;;;; Interpret and execute instructions
 
@@ -363,12 +363,16 @@
       (assoc :advance? true)
       (assoc :substack '())
       (assoc :for-map {})
-      (assoc :output (clojure.lang.PersistentQueue/EMPTY))
-      (assoc :input (clojure.lang.PersistentQueue/EMPTY))
+      ;; (assoc :output (clojure.lang.PersistentQueue/EMPTY))
+      ;; (assoc :input (clojure.lang.PersistentQueue/EMPTY))
       (assoc :input-blocked? false)
       (assoc :echo-input? true)
       (clear-error)
       (reset-data-pointer)))
+
+(defn fresh-context []
+  {:running? false
+   :input-blocked? false})
 
 (defn step [cxt]
   (let [stmt (val (first (:ip cxt)))]
