@@ -1,5 +1,6 @@
 (ns basic.interpreter
-  (:require [basic.builtins :refer [generate-builtins]]
+  (:require [basic.util :refer [compare-seq def-]]
+            [basic.builtins :refer [generate-builtins]]
             [basic.parser :refer [parse]]
             [clojure.data.avl :as avl]
             [instaparse.core :as ip]))
@@ -129,7 +130,7 @@
   (assoc-in cxt [:program (:label line)] line))
 
 (defn store-program [cxt program]
-  (update-in cxt [:program] #(merge program))
+  (update-in cxt [:program] #(merge % (next program)))
   ;(assoc cxt :program program)
   )
 
@@ -370,9 +371,13 @@
       (clear-error)
       (reset-data-pointer)))
 
+(defn run [cxt]
+  (initialize cxt))
+
 (defn fresh-context []
   {:running? false
-   :input-blocked? false})
+   :input-blocked? false
+   :program        (avl/sorted-map-by compare-seq)})
 
 (defn running-step [cxt]
   (let [stmt (val (first (:ip cxt)))]

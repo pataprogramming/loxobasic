@@ -384,10 +384,10 @@
 (defn- programmify [t]
   (if (and (vector? t)
            (= (first t) :program))
-    (reduce (fn [acc {:keys [label] :as stmt}]
-              (assoc acc label stmt))
-            (avl/sorted-map-by compare-seq)
-            (next t))
+    [:program (reduce (fn [acc {:keys [label] :as stmt}]
+                        (assoc acc label stmt))
+                      (avl/sorted-map-by compare-seq)
+                      (next t))]
     t))
 
 (defn- proc-steps [t]
