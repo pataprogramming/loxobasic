@@ -59,7 +59,7 @@
 
     tight-glue    = <' '>
     glue          = <';'>
-    <print-list>  = (glue* | expression) ((tight-glue* | glue*) expression)* glue?
+    <print-list>  = (<glue+> | expression) ((tight-glue* | glue*) expression)* glue?
 
     print         = <'PRINT'> (<ws*> print-list)?
     input         = <'INPUT' ws> (print-list glue)? id

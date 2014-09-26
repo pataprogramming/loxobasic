@@ -3,30 +3,11 @@
             [basic.builtins :refer [generate-builtins]]
             [basic.parser :refer [parse]]
             [clojure.data.avl :as avl]
-            [instaparse.core :as ip]))
+            [instaparse.core :as ip]
+            [clojure.pprint :as pp]))
 
 (defn error? [cxt]
   (contains? cxt :error))
-
-;;;; Input and output
-;;;; Handlers must be supplied by the user
-
-;; (defn perform-output! [cxt handler]
-;;   (if (empty? (:output cxt))
-;;     cxt
-;;     (recur (handler cxt) handler)))
-
-;; (defn perform-input! [cxt handler!]
-;;   (if (:input-blocked? cxt)
-;;     (handler! cxt)
-;;     cxt))
-
-;; (defn perform-io-or-error! [cxt in-handler out-handler err-handler]
-;;   (if (error? cxt)
-;;     (err-handler cxt)
-;;     (-> cxt
-;;         (perform-output! out-handler)
-;;         (perform-input! in-handler))))
 
 ;;;; Interpret and execute instructions
 
@@ -283,8 +264,7 @@
 (defn action-reset [cxt & _]
   (-> cxt
       (dissoc [:ip :data-pointer :running? :advance? :substack
-               :for-map :output :input :input-blocked?
-               :program :symbols])
+               :for-map :program :symbols])
       (generate-builtins)))
 
 (defn action-load [cxt & [filename]]
@@ -345,8 +325,9 @@
 
 (defn maybe-advance-ip [cxt]
   (if (:advance? cxt)
-    (-> cxt
-        (update-in [:ip] next))
+    (if (next (:ip cxt))
+      (update-in cxt [:ip] next)
+      (-> cxt (assoc :running? false)))
     (assoc-in cxt [:advance?] true)))
 
 ;; FIXME: Add the 'step' function here. It should take
@@ -375,7 +356,9 @@
   (initialize cxt))
 
 (defn fresh-context []
-  {:running? false
+  {:input          clojure.lang.PersistentQueue/EMPTY
+   :output         clojure.lang.PersistentQueue/EMPTY
+   :running?       false
    :input-blocked? false
    :program        (avl/sorted-map-by compare-seq)})
 
@@ -407,15 +390,18 @@
           :directive (execute cxt (fnext parsed))
           (do (println parsed) cxt))))))
 
-(defn step [cxt]
+(defn pick-step [cxt]
   (if (:running? cxt)
     (running-step cxt)
     (interactive-step cxt)))
 
-(defn input-or-step [cxt]
+(defn step [cxt]
   (if (:input-blocked? cxt)
     (assoc cxt :input-blocked? (empty? (:input cxt)))
-    (step cxt)))
+    (pick-step cxt)))
+
+(defn stuff [cxt st] (update-in cxt [:input] #(conj % st)))
+
 
 ;; (defn run [cxt in-handler out-handler err-handler]
 ;;   (loop [cxt (initialize cxt)]
