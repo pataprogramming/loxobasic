@@ -374,7 +374,7 @@
   {:running? false
    :input-blocked? false})
 
-(defn step [cxt]
+(defn running-step [cxt]
   (let [stmt (val (first (:ip cxt)))]
     (try
       (-> cxt
@@ -382,6 +382,30 @@
           (maybe-advance-ip))
       (catch Exception e
         (set-error cxt "Clojure host error" e)))))
+
+(defn interactive-step [cxt]
+  (if (empty? (:input cxt))
+    (assoc cxt :input-blocked? true)
+    (let [inp    (peek (:input cxt))
+          cxt    (update-in cxt [:input] pop)
+          parsed (try (parse inp)
+                      (catch Exception e
+                        (str "PARSE ERROR:" (.getMessage e))
+                        (.printStackTrace e)))
+          _      (println "TRYING TO INTERPRET" parsed)]
+      (if (ip/failure? parsed)
+        (do
+          (println "PARSE FAILED:" parsed)
+          cxt)
+        (case (first parsed)
+          :program   (store-program cxt parsed)
+          :directive (execute cxt (fnext parsed))
+          (do (println parsed) cxt))))))
+
+(defn step [cxt]
+  (if (:running? cxt)
+    (running-step cxt)
+    (interactive-step cxt)))
 
 (defn input-or-step [cxt]
   (if (:input-blocked? cxt)

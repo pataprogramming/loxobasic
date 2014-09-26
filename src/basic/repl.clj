@@ -1,6 +1,6 @@
 (ns basic.repl
   (:require [basic.interpreter :refer [action-reset execute run store
-                                       store-program fresh-context]]
+                                       store-program]]
             [basic.interface :refer [make-interface]]
             [basic.parser :refer [parse]]
             [basic.util :refer [dissoc-values-where]]
