@@ -263,8 +263,11 @@
 
 (defn action-reset [cxt & _]
   (-> cxt
-      (dissoc [:ip :data-pointer :running? :advance? :substack
-               :for-map :program :symbols])
+      (dissoc [:ip :data-pointer :advance? :substack
+               :for-map :symbols])
+      (merge {:running? false
+              :input-blocked? false
+              :program        (avl/sorted-map-by compare-seq)})
       (generate-builtins)))
 
 (defn action-load [cxt & [filename]]
@@ -314,7 +317,8 @@
     :reset      (action-reset cxt args)
     :load       (action-load cxt args)
     :run        (action-run cxt args)
-    :end        (assoc-in cxt [:running?] false)))
+    :end        (assoc-in cxt [:running?] false)
+    :quit       (assoc-in cxt [:terminated?] true)))
 
 (defn interpret [cxt line]
   (let [ast (first (vals  (parse line)))]
@@ -356,11 +360,12 @@
   (initialize cxt))
 
 (defn fresh-context []
-  {:input          clojure.lang.PersistentQueue/EMPTY
-   :output         clojure.lang.PersistentQueue/EMPTY
-   :running?       false
-   :input-blocked? false
-   :program        (avl/sorted-map-by compare-seq)})
+  (->  {:input          clojure.lang.PersistentQueue/EMPTY
+        :output         clojure.lang.PersistentQueue/EMPTY
+        :running?       false
+        :input-blocked? false
+        :program        (avl/sorted-map-by compare-seq)}
+       action-reset))
 
 (defn running-step [cxt]
   (let [stmt (val (first (:ip cxt)))]
@@ -400,7 +405,19 @@
     (assoc cxt :input-blocked? (empty? (:input cxt)))
     (pick-step cxt)))
 
-(defn stuff [cxt st] (update-in cxt [:input] #(conj % st)))
+(defn push-input [cxt st]
+  (-> cxt
+      (update-in [:input] #(conj % st))
+      (assoc-in [:input-blocked?] false)))
+
+(defn peek-output [cxt]
+  (peek (:output cxt)))
+
+(defn pop-output [cxt st]
+  (update-in [:output] pop)
+  #_(let [ret (peek (:output cxt))]
+      (update-in cxt [:output] pop)
+      ret))
 
 
 ;; (defn run [cxt in-handler out-handler err-handler]

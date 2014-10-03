@@ -1,6 +1,8 @@
 (ns basic.interface
-  (:require [basic.interpreter :refer [input-or-step fresh-context]]
-            [clojure.core.async :refer [chan go alt! alt!! >! <!!]]))
+  (:require [basic.interpreter :refer [step fresh-context push-input]]
+            [clojure.core.async :refer [chan go alt! alt!! >! <!!]]
+            [basic.util :refer [dissoc-values-where]]
+            [clojure.pprint :as pp]))
 
 (defn make-interface
   ([] (make-interface (fresh-context)))
@@ -9,10 +11,29 @@
           :output (chan)
           :control (chan)}))
 
-(defn spin! [iface & max-steps]
+(defn stuff [iface st]
+  (go (>! (:input iface) st)))
+
+(defn drain [iface]
+  (println (<!! (:output iface))))
+
+(defn hide-extraneous [cxt]
+  (-> cxt
+      (update-in [:symbols]
+                 (fn [s] (dissoc-values-where s #(= (get % :kind)
+                                                   :builtin))))
+      (dissoc :program)
+      (update-in [:ip] first)))
+
+(defn dump-cxt [cxt]
+  (pp/pprint (hide-extraneous cxt))
+  cxt)
+
+(defn spin! [iface & [max-steps]]
   (loop [steps 0]
-    (when (or (not max-steps) (< steps max-steps))
-      (println "loop start")
+    (when (and (not (:iterminated? (:state iface)))
+               (or (not max-steps) (< steps max-steps)))
+      (println "loop start step" steps)
       (let [v         (go (alt!! (:control iface) :terminated
                                  :default         :continuing))
             ctrl-chan (:control iface)
@@ -24,23 +45,30 @@
             (println "continuing")
             (cond
              ;; Send all pending output to the output channel
-             (get @state :output)
+             (not (empty? (get @state :output)))
              (do
+               (println "outputing")
                (doseq [st (get @state :output)] (go (>! out-chan st)))
                (swap! state #(update-in % [:output] empty))
                (recur (inc steps)))
 
              ;; If input is needed, wait for it to be provided
-             (get state :input-blocked?)
-             (let [v (go (alt!!
-                           ctrl-chan :terminated
-                           in-chan   ([v ch] v)))]
-               (when-not (= v :terminated)
-                 (swap! state #(update-in % [:input]))))
-
+             (get @state :input-blocked?)
+             (do
+               (println "inputting")
+               (let [v (alt!!
+                             in-chan   ([v] v)
+                             ctrl-chan :terminacted)]
+                 (when-not (= v :terminated)
+                   (swap! state #(push-input % v))
+                   (recur (inc steps)))))
              ;; Otherwise, execute the next program step
              :else
              (do
-               (swap! state input-or-step)
+               (println "stepping")
+               (swap! state step)
+               (dump-cxt @state)
                (recur (inc steps)))))
           (println "terminating"))))))
+
+(def i (make-interface))
